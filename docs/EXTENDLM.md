@@ -90,3 +90,15 @@ raportează `NO_EXTENDLM_TOKEN` dacă fișierul lipsește.
   utilizatorului; serverul MCP folosește sesiunea extensiilor.
 - Portul 9412 (profilul `minimax-notebooklm` al stratului `google-layer/`) a
   fost măsurat **închis** în timpul acestei sesiuni.
+
+## Stare măsurată 27 oct 2026, ~12:00
+
+- Client dinamic înregistrat: `mcp_client_tJn6NvAfuMWEoT287NtRcyj72b7aI4sODEWMn9jD5UI`
+  (public, fără secret; PKCE S256; 30 scope-uri returnate de server).
+- Ascultător pe `127.0.0.1:8799`, redirect `http://127.0.0.1:8799/callback`.
+- Fereastra de așteptare: **180 min** (era 60 - un răspuns uman se pierdea).
+- `data/extendlm.json`: **ABSENT**. `notebooklm_ask` răspunde `NO_EXTENDLM_TOKEN`
+  - verdict corect, nu tăcere.
+- Ce lipsește e un singur lucru, de la om: autentificarea pe `extendlm.com`
+  („Continue with Google") și autorizarea aplicației. Restul - schimbul codului,
+  scrierea tokenului în volum, repornirea containerului - e automat.

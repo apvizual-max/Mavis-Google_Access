@@ -71,3 +71,36 @@ nu există ca serviciu** - nu poate fi activat.
 Înainte de a folosi o metodă de API: verific-o în discovery document. Un drum
 ghicit înseamnă un 404 măsurat - și un 404 care arată la fel ca o lipsă de
 scope.
+
+## Photos după 31 martie 2025 - ce mai există și ce nu
+
+Măsurat pe contul real (27 oct 2026, `scripts/probe-photos.mjs`):
+`mediaItems.list` și `albums.list` răspund `403 Request had insufficient
+authentication scopes`, **deși** tokenul duce `photoslibrary`,
+`photoslibrary.readonly` și `photoslibrary.appendonly`, API-ul e activ în
+proiectul clientului OAuth, contul e personal și are bibliotecă reală, iar
+același token răspunde 200 pe Drive (control).
+
+Cauza, din documentația oficială
+(https://developers.google.com/photos/library/guides/authorization):
+
+> photoslibrary.readonly / photoslibrary.sharing / photoslibrary
+> Warning: These scopes are being removed as part of the updates to the Google
+> Photos APIs. After March 31, 2025, you will only be able to access content
+> created by your application.
+
+Discovery-ul v1 confirmă în descrierile metodelor: `mediaItems.list` = „List
+all media items **created by your app**", `albums.list` = „Lists all albums
+**created by your app**".
+
+| Scope | Stare pe 27 oct 2026 |
+|---|---|
+| `photoslibrary` | acordat, dar **nu mai deschide** biblioteca utilizatorului |
+| `photoslibrary.readonly` | acordat, dar **nu mai deschide** biblioteca utilizatorului |
+| `photoslibrary.appendonly` | **activ**: creează album și încarcă media în biblioteca reală |
+| `photoslibrary.readonly.appcreateddata` | cerut - citire doar a conținutului creat de aplicație |
+| `photoslibrary.edit.appcreateddata` | cerut - editare conținut creat de aplicație |
+| `photospicker.mediaitems.readonly` | **nefolosit**: `sessions.create` cere un `pollingUri` public, la care Google trebuie să ajungă |
+
+Regula rămâne: înainte de a folosi o metodă de API - verific-o în discovery
+document și în data retragerii din documentație, nu din memorie.

@@ -181,10 +181,10 @@ function exchange(meta, reg, code, verifier) {
   });
 
   setTimeout(() => {
-    log("TIMEOUT=1 (nicio autorizare in 60 min)");
+    log("TIMEOUT=1 (nicio autorizare in 180 min)");
     server.close();
     process.exitCode = 6;
-  }, 60 * 60 * 1000);
+  }, 180 * 60 * 1000);
 })().catch((e) => {
   log("FATAL=" + e.message);
   process.exitCode = 3;

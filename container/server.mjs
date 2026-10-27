@@ -106,6 +106,8 @@ const FULL_SCOPES = [
   "https://www.googleapis.com/auth/photoslibrary.readonly",
   "https://www.googleapis.com/auth/photoslibrary.appendonly",
   "https://www.googleapis.com/auth/photoslibrary",
+  "https://www.googleapis.com/auth/photoslibrary.readonly.appcreateddata",
+  "https://www.googleapis.com/auth/photoslibrary.edit.appcreateddata",
   "https://www.googleapis.com/auth/books",
   "https://www.googleapis.com/auth/tasks",
   "https://www.googleapis.com/auth/script.projects",
@@ -244,7 +246,11 @@ function scopeOf(tool) {
     gsheets_write: ["https://www.googleapis.com/auth/spreadsheets"],
     gcalendar_list: ["https://www.googleapis.com/auth/calendar"],
     gcalendar_create: ["https://www.googleapis.com/auth/calendar.events"],
-    gphotos_list: ["https://www.googleapis.com/auth/photoslibrary.readonly", "https://www.googleapis.com/auth/photoslibrary"],
+    gphotos_list: ["https://www.googleapis.com/auth/photoslibrary.readonly.appcreateddata"],
+    gphotos_albums: ["https://www.googleapis.com/auth/photoslibrary.readonly.appcreateddata"],
+    gphotos_create_album: ["https://www.googleapis.com/auth/photoslibrary.appendonly"],
+    gphotos_upload: ["https://www.googleapis.com/auth/photoslibrary.appendonly"],
+    gphotos_edit_item: ["https://www.googleapis.com/auth/photoslibrary.edit.appcreateddata"],
     gbooks_search: [],
     gkeep_list: [],
     gtasks_list: ["https://www.googleapis.com/auth/tasks"],
@@ -468,10 +474,66 @@ const TOOLS = [
   },
   {
     name: "gphotos_list",
-    description: "List photos in the library (needs the photoslibrary scope).",
+    description:
+      "List media items this app created in the user's Google Photos library. " +
+      "Since 2025-03-31 Google only grants library-wide read to app-created content " +
+      "(photoslibrary.readonly.appcreateddata).",
     inputSchema: {
       type: "object",
       properties: { page_size: { type: "number" } },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "gphotos_albums",
+    description: "List albums this app created in the user's Google Photos library.",
+    inputSchema: {
+      type: "object",
+      properties: { page_size: { type: "number" } },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "gphotos_create_album",
+    description: "Create an album in the user's real Google Photos library (photoslibrary.appendonly).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        title: { type: "string" },
+        description: { type: "string" },
+      },
+      required: ["title"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "gphotos_upload",
+    description:
+      "Upload bytes into the user's Google Photos library (photoslibrary.appendonly). " +
+      "Takes base64 content, uploads it raw, then creates the media item.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        filename: { type: "string" },
+        mime_type: { type: "string" },
+        content_base64: { type: "string" },
+        description: { type: "string" },
+        album_id: { type: "string" },
+      },
+      required: ["content_base64"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "gphotos_edit_item",
+    description: "Edit an app-created media item (description) in the user's library.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        media_item_id: { type: "string" },
+        description: { type: "string" },
+      },
+      required: ["media_item_id"],
       additionalProperties: false,
     },
   },
@@ -849,11 +911,81 @@ const IMPL = {
     return { event_id: r.id, htmlLink: r.htmlLink };
   },
 
+  // Google removed library-wide read on 2025-03-31: the old scopes now reach
+  // only content this app created. The tool reports that truth instead of
+  // pretending the whole library is reachable.
   async gphotos_list(args) {
     const r = await gfetch(
       API_BASE.photoslibrary + "/v1/mediaItems?pageSize=" + Math.min(Number(args.page_size || 25), 100)
     );
-    return { count: (r.mediaItems || []).length, photos: (r.mediaItems || []).map((p) => ({ id: p.id, created: p.mediaMetadata && p.mediaMetadata.dateTaken })) };
+    return {
+      count: (r.mediaItems || []).length,
+      scope_note: "app-created media items only (Google removed library-wide read on 2025-03-31)",
+      photos: (r.mediaItems || []).map((p) => ({ id: p.id, created: p.mediaMetadata && p.mediaMetadata.dateTaken })),
+    };
+  },
+
+  async gphotos_albums(args) {
+    const r = await gfetch(
+      API_BASE.photoslibrary + "/v1/albums?pageSize=" + Math.min(Number(args.page_size || 25), 100)
+    );
+    return {
+      count: (r.albums || []).length,
+      scope_note: "app-created albums only (Google removed library-wide read on 2025-03-31)",
+      albums: (r.albums || []).map((a) => ({ id: a.id, title: a.title, productUrl: a.productUrl })),
+    };
+  },
+
+  async gphotos_create_album(args) {
+    const r = await gfetch(API_BASE.photoslibrary + "/v1/albums", {
+      method: "POST",
+      body: JSON.stringify({ album: { title: args.title, description: args.description || "" } }),
+    });
+    return { album_id: r.id, title: r.title, productUrl: r.productUrl };
+  },
+
+  async gphotos_upload(args) {
+    // Two steps, both under photoslibrary.appendonly: upload the raw bytes,
+    // then create the media item with the token that upload returns.
+    const bytes = Buffer.from(String(args.content_base64 || ""), "base64");
+    if (!bytes.length) throw new Error("EMPTY_CONTENT (content_base64 decoded to 0 bytes)");
+    const mimeType = args.mime_type || "image/jpeg";
+    const up = await gfetch(API_BASE.photoslibrary + "/v1/uploads?uploadType=media", {
+      method: "POST",
+      headers: { "Content-Type": mimeType },
+      body: bytes,
+    });
+    const token = up && up.uploadToken;
+    if (!token) throw new Error("NO_UPLOAD_TOKEN (the uploads endpoint did not return one)");
+    const created = await gfetch(API_BASE.photoslibrary + "/v1/mediaItems:batchCreate", {
+      method: "POST",
+      body: JSON.stringify({
+        mediaItems: [
+          {
+            description: args.description || "",
+            simpleMediaDetails: { filename: args.filename || "upload.jpg", mimeType: mimeType },
+            uploadTokens: [token],
+          },
+        ],
+        albumId: args.album_id || undefined,
+      }),
+    });
+    const results = (created && created.newMediaItemResults) || [];
+    const first = results[0] || {};
+    return {
+      uploaded_bytes: bytes.length,
+      status: first.status || null,
+      media_item_id: first.mediaItem && first.mediaItem.id,
+      productUrl: first.mediaItem && first.mediaItem.productUrl,
+    };
+  },
+
+  async gphotos_edit_item(args) {
+    const r = await gfetch(API_BASE.photoslibrary + "/v1/mediaItems/" + encodeURIComponent(args.media_item_id), {
+      method: "PATCH",
+      body: JSON.stringify({ description: args.description || "" }),
+    });
+    return { id: r.id, description: r.description };
   },
 
   async gbooks_search(args) {

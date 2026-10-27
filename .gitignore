@@ -5,3 +5,7 @@ state/
 *.tmp
 *.log
 __pycache__/
+
+# Working clone of MAVIS-CLOUD - that repo has its own history. A copy of
+# another repository inside a public repository would duplicate it.
+.work/

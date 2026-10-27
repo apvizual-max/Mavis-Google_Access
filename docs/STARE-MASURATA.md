@@ -96,6 +96,62 @@ asta explicit prin `google_auth_status` (`reauth_required`), nu tace.
    aplicațiile web rămâne browser-ul (MCP de browser + Chrome DevTools).
 3. **Verificarea OAuth** a aplicației nu e făcută. Nu e nevoie pentru uz
    personal, dar e nevoie dacă aplicația ar fi folosită de altcineva.
-4. **Photos**: dacă refuzul persistă după noul grant, cauza rămâne verificarea
-   aplicației (API-ul Photos Library cere aplicații verificate pentru acces la
-   biblioteca utilizatorului). Măsurat la `scripts/probe-token.mjs`.
+4. **Photos**: refuzul **nu** vine din grant și **nu** din verificarea aplicației.
+   Măsurat: tokenul duce `photoslibrary` + `photoslibrary.readonly` +
+   `photoslibrary.appendonly`, API-ul e activ în proiectul clientului OAuth,
+   contul are bibliotecă reală (100,4 GB folosite), iar același token răspunde
+   200 pe Drive (control). Cauza e regula Google: din **31 martie 2025**
+   scope-urile `photoslibrary.readonly` / `photoslibrary` / `photoslibrary.sharing`
+   au fost retrase - rămâne accesul doar la conținutul creat de aplicație
+   (`photoslibrary.readonly.appcreateddata`), iar citirea bibliotecii trece prin
+   Picker API, care cere un `pollingUri` public. Sursa:
+   https://developers.google.com/photos/library/guides/authorization
+
+## 7. 27 oct 2026, 11:19-12:05 - consimțământul #2, defectul de cale, cauza Photos
+
+### 7.1 Clickul lui Popy a ajuns la capăt, dar schimbul codului a murit
+Măsurat: `CODE_RECEIVED=1` de două ori (11:25:41, 11:25:56), `PROVISION_EXIT=1`
+în ambele, `scope_count=0`. Cauza, cuvânt cu cuvânt, din `provision_output`:
+`Cannot find module '...projects\google-layer\google-grant.js'`.
+`provision-grant.cjs` cerea modulul printr-o **cale absolută hardcodată**, iar
+folderul `google-layer` se mutase în `Mavis-Google_Access\google-layer` cu
+consolidarea. Deci: clickul fusese consumat de două ori, iar schimbul nu se
+putuse face - **defectul a apărut după ce omul acționase**.
+
+Reparație, la sursă, nu prin mutarea unui literal: rezolvare prin listă de
+candidați (`GA_LAYER_DIR` -> `google-layer` lângă script -> rădăcinile de
+proiect) + ieșire **loud 7** cu lista căutată, în loc de stack trace; plus o
+copie a modulului lângă script, ca hostul să nu depindă de locul repo-ului.
+Probă: `GRANT_MODULE=<cale>` + `TOKEN_ENDPOINT_HTTP=400 invalid_grant` +
+`NO_CHANGE=1` - modulul se încarcă, Google răspunde, credentialul nu e atins.
+
+### 7.2 Consimțământul #2, cu 30 scope-uri - obținut
+`CODE_RECEIVED=1` (11:37:52) -> `PROVISION_EXIT=0` -> `SCOPES=30` ->
+`RESTART_EXIT=0` -> `PROBE_EXIT=0` -> `VERDICT=PASS`. Lanțul s-a dus singur
+după click: schimb, publicare în volum, restart container, probă, notificare.
+`photoslibrary` și `chat.spaces.readonly` au intrat în token.
+
+### 7.3 Chat a trecut, Photos nu - și cauza nu e a mea
+Probă pe 16 servicii: **chat OK** (15 spații; era REFUSED), **photos încă
+REFUSED** (403). Izolat cu `scripts/probe-photos.mjs`: tokenul duce cele trei
+scope-uri Photos, `mediaItems.list` și `albums.list` dau 403, iar Drive dă 200
+pe același token (control). Contul e personal (gmail.com, fără hosted domain),
+proiectul API-ului (`1068987308935`) e chiar proiectul clientului OAuth, iar
+API-ul e activ. Regula oficială spune că din **31 martie 2025** acele scope-uri
+au fost retrase: rămâne doar conținutul creat de aplicație.
+
+Așadar, cerute `photoslibrary.readonly.appcreateddata` + `photoslibrary.edit.appcreateddata`
+(32 scope-uri), iar uneltele Photos rescrise pe modelul real: `gphotos_list`,
+`gphotos_albums`, `gphotos_create_album`, `gphotos_upload`, `gphotos_edit_item`.
+Picker API **ne** legat: `sessions.create` cere un `pollingUri` pe care Google
+însuși trebuie să-l ajungă - imposibil de la `127.0.0.1`. Documentat, nu
+cosmetizat.
+
+### 7.4 Cloud
+Run `40479493605`: `SOURCE_COMMIT=3bd5420`, `CREDENTIAL_FIELDS` complete,
+`scope_chars=1233`, `VERDICT=PASS`, 11 servicii cu date reale. Secretul merge:
+corecția BOM (`sed '1s/^\xEF\xBB\xBF//' | tr -d '\r\n'`) a rezolvat
+`base64: invalid input`.
+
+### 7.5 Ascultătoare: 90/60 min -> **180 min**
+Un răspuns uman nu trebuie să se piardă într-un timeout.
