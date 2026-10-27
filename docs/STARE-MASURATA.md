@@ -407,4 +407,43 @@ tiprească (`[REDACTED_SNAPSHOT]`), iar wrapper-ul aplică o plasă de siguranț
 - Cloud: run `40497337673` verde, `notebooklm` OK măsurat în Cloud.
 - Repo: `main` = `origin/main`, divergență 0/0.
 
+## 11. Browser MCP - DEFECT MĂSURAT: înregistrat, activ, și imposibil de pornit
+
+Punctul „Browser MCP" din scop nu era atins. Măsurarea lui a găsit altceva: serverul
+`minimax-notebooklm` era **înregistrat și activ** în profilul MCP, cu o cale care
+**nu există**.
+
+| Ce | Măsurat |
+|---|---|
+| intrarea în `mcp.json` | `enabled=true`, `command=node.exe`, `args=[…\projects\google-layer\minimax-notebooklm.js]` |
+| folderul `projects\google-layer\` | **ABSENT** - nu a existat niciodată |
+| fișierul real | `projects\Mavis-Google_Access\google-layer\minimax-notebooklm.js` (urmărit în git) |
+| portul CDP 9412 | **închis** |
+| consecință | serverul nu pornește: „enabled" într-un fișier de configurare e o **declarație**, nu o măsurătoare |
+
+Reparație: calea corectată în intrarea MCP, cu descrierea actualizată cu
+măsurătorile de după reparație.
+
+**Sonda permanentă:** `scripts/probe-minimax-notebooklm.mjs` pornește serverul ca
+proces copil, vorbește JSON-RPC pe linii peste stdio (același protocol ca
+serverul) și raportează ce a venit înapoi.
+
+| Măsurătoare | Valoare |
+|---|---|
+| `INITIALIZE_OK` | 1 - `minimax-notebooklm` 1.0.0 |
+| `TOOL_COUNT` | **4** - `nblm_health`, `nblm_list_notebooks`, `nblm_get_sources`, `nblm_ask` |
+| `nblm_health` | `state=authenticated`, `authenticated=true`, `notebook_list=true`, `sign_in_cta=false`, `circuit=closed` |
+| Chrome | pornit de server pe `127.0.0.1:9412` (pid măsurat) cu profilul propriu |
+| `nblm_list_notebooks` | notebook-uri reale: `JULES` (182 surse), `GEMINI & AI Studio` (251), `CV-Automation` (98), `CLIENTS` (2), `AGENTS` (8), `TRADE` (1), `CV-Notebook` (99), `SENTINEL Role` (225), `OPTIMUS System` (5) + restul listei |
+| verdict | `SERVER_ANSWERS`, exit 0 |
+
+Deci sunt **două drumuri vii** spre NotebookLM, independente prin construcție:
+proxy-ul ExtendLM din container (token, peste HTTPS, 160 unelte) și serverul
+de browser cu profil Chrome propriu (4 unelte, sesiune deja autentificată).
+Nu se amestecă: `minimax` și `Hermes` rămân universuri separate.
+
+Descrierea intrării `Google_Access` din profilul MCP spunea „25 unelte" -
+corectată la 32, cu numărul măsurat și cu starea Cloud-ului.
+
+
 

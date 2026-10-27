@@ -223,4 +223,26 @@ Run `40497337673` (concluzie **success**): `SOURCE_COMMIT=f589f82`,
 `EXTENDLM_FIELDS=…token_len=87…refresh=yes`, `SERVICE=notebooklm STATUS=OK`,
 `VERDICT=PASS`, `PROBE_EXIT=0`. Secretul Cloud: `GOOGLE_EXTENDLM_CREDENTIAL_B64`.
 
+## Al doilea drum spre NotebookLM - serverul de browser
+
+Drumul de mai sus e proxy-ul ExtendLM din container. Există și un drum
+independent prin browser, cu profil Chrome propriu (nu token, ci sesiune).
+
+**DEFECT MĂSURAT 27 oct 2026:** serverul `minimax-notebooklm` era înregistrat și
+activ în profilul MCP, dar cu o cale care nu există
+(`projects\google-layer\…`, folder absent) - deci nu pornea deloc. Corecția
+calei + proba: `scripts/probe-minimax-notebooklm.mjs` →
+`INITIALIZE_OK=1` (minimax-notebooklm 1.0.0), `TOOL_COUNT=4`
+(`nblm_health`, `nblm_list_notebooks`, `nblm_get_sources`, `nblm_ask`),
+`nblm_health` → `authenticated=true`, `notebook_list=true`, `circuit=closed`, iar
+`nblm_list_notebooks` a întors notebook-urile reale (`JULES` 182 surse,
+`GEMINI & AI Studio` 251, `CV-Automation` 98, `AGENTS` 8, `TRADE` 1,
+`CV-Notebook` 99, `SENTINEL Role` 225, `OPTIMUS System` 5, `CLIENTS` 2).
+
+Chrome pornește de server, la nevoie, pe `127.0.0.1:9412`, cu profilul
+`%LOCALAPPDATA%\minimax-notebooklm\chrome_profile`. Serverul are circuit breaker
+pentru sesiunea neautentificată: răspunde din ultima stare cunoscută, fără să
+atingă rețeaua, și lasă o singură sondă pe cooldown.
+
+
 
