@@ -445,5 +445,89 @@ Nu se amestecă: `minimax` și `Hermes` rămân universuri separate.
 Descrierea intrării `Google_Access` din profilul MCP spunea „25 unelte" -
 corectată la 32, cu numărul măsurat și cu starea Cloud-ului.
 
+## 12. 28 oct 2026, 00:38-00:48 - Photo Picker: cauza măsurată, selecția capturată
+
+### 12.1 Simptomul și cauza lui, din discovery document
+
+Popy a deschis `pickerUri` și a primit: **„Couldn't open Google Photos. Go back
+to the partner app, website, kiosk or other device that you started from and
+connect to Google Photos again."**
+
+Cauza, din discovery document-ul oficial (`photospicker` v1, rev. **20261026**),
+câmpul `pickerUri`:
+
+> To view this page successfully, the user must be logged into the Google
+> account that owns this session in their web browser. The `pickerUri` cannot be
+> opened in an iframe due to security reasons.
+
+Deci există exact **două** cauze, care produc **același** mesaj: browserul nu
+e conectat la contul care deține sesiunea, sau URI-ul a fost deschis într-un
+cadru încorporat. Ghicirea între ele nu valorează nimic - de aceea probe-ul
+de mai jos, cu același URI în două browsere.
+
+Contul care deține sesiunea, măsurat pe obiect (tokeninfo pe tokenul
+containerului): `apvizual@gmail.com`, 35 scope-uri, `HAS_PICKER=true`.
+
+### 12.2 Proba controlată: același URI, două browsere
+
+| Context | Rezultat |
+|---|---|
+| Chrome cu profilul propriu `minimax-notebooklm` (autentificat pe `apvizual@gmail.com`) | `PAGE_HEAD="Search your photos and albums Clear"`, `DETECT_BROKEN=0`, `VERDICT=PICKER_UI_LOADED` |
+| fereastra în care a fost deschis linkul de Popy | „Couldn't open Google Photos" |
+
+Concluzie măsurată: **sesiunea, scope-ul și URI-ul sunt corecte**; nuvelește
+fereastra, nu API-ul. Sonda permanentă: `scripts/probe-picker-cdp.mjs`
+(CDP 9412, creează tabul și citește ce răspunde pagina).
+
+### 12.3 Reparația: fereastra, deschisă de mine, pe contul lui
+
+Chrome **vizibil** (nu headless), cu profilul propriu al instalației,
+pornit direct pe `pickerUri`:
+
+```
+chrome.exe --user-data-dir=%LOCALAPPDATA%\minimax-notebooklm\chrome_profile \
+           --remote-debugging-port=9412 --window-size=1400,900 <pickerUri>
+```
+
+Rezultat: `PICKER_UI_LOADED`, o singură fereastră pe ecran, contul
+`apvizual@gmail.com`. Popy a ales 4 poze și a apăsat „Done".
+
+### 12.4 Captura, măsurată
+
+| Măsurătoare | Valoare |
+|---|---|
+| `mediaItemsSet` | **true** |
+| `PICKED` | **4** |
+| fișiere descărcate | `FB_IMG_1567778444962.jpg` (32.016 B), `FB_IMG_1567778290609.jpg` (87.827 B), `FB_IMG_1662778826700.jpg` (57.899 B), `FB_IMG_1662778884985.jpg` (26.204 B) |
+| verificare | `content-type: image/jpeg` + semnătură magică JPEG (`ff d8 ff`) - nu pagină de eroare cu extensie `.jpg` |
+| scrise în | `state/picked/2026-10-27/` + `manifest.json` |
+
+Scripturi: `scripts/picker-watch.mjs` (sondă sesiunea și scrie
+`data/picked-media.json`), `scripts/picker-download.mjs` (descărcă și
+verifică octeții).
+
+### 12.5 Automatizarea, ca să nu depindă de o conversație deschisă
+
+`scripts/picker-heartbeat.ps1` + taskul Windows **`MavisPickerHeartbeat`**
+(repetiție 15 min): citește `data/picker-session.json`, sondează sesiunea,
+dacă utilizatorul a terminat, scrie lista, descarcă media, **șterge sesiunea**
+(API-ul cere exact asta ca să nu se acumuleze), și scrie o linie datată în
+`logs/picker-heartbeat-YYYY-MM-DD.log`.
+
+Proba manuală: `EXIT=0 … SESSION_ID=f4587e83… mediaItemsSet=false
+VERDICT=NOT_PICKED_YET`. Captura de mai sus a trecut prin același cod.
+
+### 12.6 Curățenia măsurată
+
+Două sesiuni vechi au fost șterse prin `DELETE /v1/sessions/{id}` → **HTTP 200**,
+iar sesiunea consumată (după „Done") a fost ștearsă la fel. Taburile și
+ferestrele învechite au fost închise, iar pe ecran a rămas **o singură** fereastră
+de picker, pe sesiunea curentă.
+
+Notă de măsurare: în timpul curățării, scriptul a închis tabul **nou** în locul
+celu consumat (o constantă de sesiune veche în cod). Corectat pe loc, apoi
+verificat pe obiect: `PAGES_LEFT` conține doar sesiunea curentă.
+
+
 
 
