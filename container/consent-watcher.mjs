@@ -27,6 +27,9 @@ const RESULT = path.join(DATA_DIR, "consent-result.json");
 const PROBE_OUT = path.join(DATA_DIR, "last-probe.txt");
 const NTFY = "http://127.0.0.1:8090";
 const PORT = Number(process.env.CONSENT_PORT || 80);
+// How long the listener waits for the authorization code. Configurable, so
+// the host can keep ONE long-lived listener up (see ensure-consent-watcher).
+const WINDOW_MIN = Number(process.env.CONSENT_WINDOW_MIN || 180);
 const REDIRECT = "http://localhost";
 
 function run(cmd, args, timeoutMs = 120000) {
@@ -161,10 +164,17 @@ const server = http.createServer((req, res) => {
 
 server.listen(PORT, () => {
   console.log("LISTENING=http://localhost:" + PORT + " redirect=" + REDIRECT);
+  console.log("WINDOW_MIN=" + WINDOW_MIN);
   console.log("READY=1");
 });
 
+// MEASURED 2026-10-28: the window was a hardcoded 180 minutes, so the
+// listener always died and the re-consent path stopped being permanent -
+// the next re-consent would have had no listener to catch the callback, and
+// the fix would have been "rebuild the setup" instead of "click Allow".
+// The window is now configurable, and the host keeps a listener up through a
+// scheduled task, so the human action stays ONE CLICK whenever it happens.
 setTimeout(() => {
-  console.log("TIMEOUT=1 (niciun cod in 180 min)");
+  console.log("TIMEOUT=1 (no code within " + WINDOW_MIN + " min)");
   process.exit(0);
-}, 180 * 60 * 1000);
+}, WINDOW_MIN * 60 * 1000);

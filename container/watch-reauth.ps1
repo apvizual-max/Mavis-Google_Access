@@ -67,7 +67,35 @@ function Send-Ntfy {
 $running = @(docker ps --filter "name=^/$Container$" --format '{{.Names}}')
 if ($running.Count -eq 0) {
     Write-Log ('CONTAINER=down name=' + $Container + ' -> starting it')
+    $started = $false
     docker start $Container 2>&1 | Out-Null
+    if ($LASTEXITCODE -eq 0) { $started = $true; Write-Log 'CONTAINER=started' }
+    if (-not $started) {
+        # MEASURED 2026-10-28: "docker start" only works on a container that
+        # still EXISTS. If the container was removed, the watcher logged an
+        # error and the whole system stayed down - the grant, the volume and
+        # the port were all still there, only the container was missing. So it
+        # is recreated here, with the same parameters, from the newest local
+        # image of this project.
+        Write-Log 'CONTAINER=absent -> recreating it'
+        docker rm -f $Container 2>&1 | Out-Null
+        $image = $null
+        $images = @(docker images google-access --format '{{.CreatedAt}}|{{.Repository}}:{{.Tag}}' 2>$null |
+            Sort-Object -Descending)
+        if ($images.Count -gt 0) { $image = ($images[0] -split '\|')[1] }
+        if (-not $image) { $image = 'google-access:1.0.9' }
+        Write-Log ('CONTAINER=recreating image=' + $image)
+        docker run -d --name $Container --restart unless-stopped `
+            -p 127.0.0.1:8766:8766 `
+            -v 'C:\Users\apviz\.minimax\google-access\data:/data' `
+            -v 'E:\--- System Secrets:/secrets:ro' `
+            -e GA_PORT=8766 $image 2>&1 | Out-Null
+        if ($LASTEXITCODE -eq 0) {
+            Write-Log ('CONTAINER=recreated image=' + $image)
+        } else {
+            Write-Log 'CONTAINER=recreate_failed'
+        }
+    }
     Start-Sleep -Seconds 4
 }
 

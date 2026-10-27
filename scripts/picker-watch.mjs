@@ -66,6 +66,34 @@ async function api(token, url, method = "GET") {
 
   const s = await api(token, PICKER + "/v1/sessions/" + encodeURIComponent(SESSION));
   if (s.status !== 200) {
+    // MEASURED 2026-10-28: a session that the user completed - and that this
+    // watcher then deleted, as the API asks - answers 404 ENTITY_NOT_FOUND on
+    // every later poll. That is the designed end of a picker session, NOT a
+    // failure. Reporting it as one turned the heartbeat red (exit 2), and
+    // through it the whole control point - for the user finishing the very
+    // action the picker exists for.
+    //
+    // So the local session file is MARKED as consumed (never deleted: the
+    // file is evidence) and the run ends green.
+    if (s.status === 404) {
+      const sessionFile = path.join(DATA, "picker-session.json");
+      try {
+        if (fs.existsSync(sessionFile)) {
+          const cur = JSON.parse(fs.readFileSync(sessionFile, "utf8"));
+          if (cur.session_id === SESSION) {
+            cur.session_id = null;
+            cur.state = "consumed";
+            cur.consumed_at = new Date().toISOString();
+            fs.writeFileSync(sessionFile, JSON.stringify(cur, null, 2), "utf8");
+          }
+        }
+      } catch {
+        /* the marker is a courtesy; the verdict below is the real signal */
+      }
+      console.log("SESSION_GET_HTTP=404 VERDICT=SESSION_CONSUMED");
+      process.exitCode = 0;
+      return;
+    }
     console.log("SESSION_GET_HTTP=" + s.status + " body=" + JSON.stringify(s.body).slice(0, 200));
     console.log("VERDICT=SESSION_UNREACHABLE");
     process.exitCode = 2;

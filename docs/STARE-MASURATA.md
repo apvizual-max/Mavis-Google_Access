@@ -528,6 +528,154 @@ Notă de măsurare: în timpul curățării, scriptul a închis tabul **nou** î
 celu consumat (o constantă de sesiune veche în cod). Corectat pe loc, apoi
 verificat pe obiect: `PAGES_LEFT` conține doar sesiunea curentă.
 
+## 13. 28 oct 2026, 23:30-23:52 - punctul de control și patru defecte măsurate
+
+Finalizarea punctului de control a scos la iveală defecte care stăteau
+active, nu defecte ipotetice. Toate au fost măsurate înainte de a fi reparate.
+
+### 13.1 Trei intrări MCP rupte de mutarea `google-layer/`
+
+Când `google-layer/` a fost mutat din repo-ul backbone în
+`Mavis-Google_Access/google-layer/` (27 oct), **trei intrări din registry-ul
+global `mcp.json` au continuat să indice spre vechea cale**:
+
+| Intrare | Cale înregistrată | Fișier | Stare |
+|---|---|---|---|
+| `gdrive-mcp` | `projects\google-layer\gdrive-launcher.js` | inexistent | **enabled** |
+| `gmail-mcp` | `projects\google-layer\gmail-launcher.js` | inexistent | **enabled** |
+| `google-calendar-mcp` | `projects\google-layer\calendar-launcher.js` | inexistent | dezactivat |
+
+Registry-ul spunea „enabled", fișierele nu existau, și **nimic nu semnala**.
+Deoarece configurația MCP este **globală**, o cale moartă acolo stinge
+capabilitatea pentru fiecare agent de pe stație, nu doar pentru sesiunea care a
+scris-o.
+
+Instrument nou: `scripts/probe-mcp-stdio.mjs` - pornește comanda și argumentele
+**exact cum sunt în registry**, face handshake MCP real peste stdio și
+raportează ce a răspuns. Falsificat în ambele sensuri înainte de a fi folosit:
+`gdrive-mcp` → `INIT_OK=0 REASON=missing_on_disk(...)` (exit 2),
+`minimax-notebooklm` → `INIT_OK=1 TOOLS=4` (exit 0).
+
+După reparare (calea sancționată: interfața `mavis` pentru configurație MCP):
+
+| Intrare | Măsurătoare după reparare |
+|---|---|
+| `gdrive-mcp` | `INIT_OK=1 SERVER=gdrive-mcp TOOLS=9` |
+| `gmail-mcp` | `INIT_OK=1 SERVER=gmail-mcp TOOLS=36` |
+| `google-calendar-mcp` | `INIT_OK=0` - **corect**: server HTTP, nu stdio; rămâne dezactivat |
+
+### 13.2 `docker-mcp`: wrapper inexistent și dependențe lipsă
+
+Intrare: `command = C:\Users\apviz\AppData\Roaming\npm\mcp-docker.cmd` -
+**fișier inexistent** (pachetul `mcp-docker` nu are câmp `bin`, deci npm nu a
+creat niciodată wrapperul). Răspunsul real al serverului:
+
+```
+Error [ERR_MODULE_NOT_FOUND]: Cannot find package '@modelcontextprotocol/sdk'
+```
+
+Pachetul a fost publicat cu `devDependencies` (SDK, dockerode, zod) și cu
+`dependencies: { dotenv }` - deci nu are ce importa la runtime.
+
+Reparat: dependințele de runtime instalate în pachetul existent (fără a atinge
+nimic din Hermes), intrarea reorientată pe punctul de intrare real. Măsurat:
+`INIT_OK=1 SERVER=docker-agent TOOLS=19`.
+
+### 13.3 Regresia mutării: trei optimizări rămase în repo-ul vechi
+
+Mutarea din 27 oct a fost verificată pentru **prezență**, nu pentru
+**conținut**. Compararea linie cu linie (`scripts/compare-layer-versions.py`,
+instrument nou) a arătat că trei fișiere au rămas înaintea optimizărilor
+fuzionate pe 24 oct:
+
+| Fișier | Optimizare | Pierdere măsurată |
+|---|---|---|
+| `bun-secrets-shim.js` | PR #11 - async I/O | 7 `await` → 0 |
+| `gworkspace-oauth.js` | PR #31 - async OAuth client load | 4 `await` → 2 |
+| `notebook-ask.js` | refactor async | 3 `await` → 2 |
+| `verify-workspace.js` | PR #34 - async readLock | 5 `await` → 4 |
+
+Toate cele patru au fost readuse din commitul fixat `9b96b69`
+(`scripts/restore-layer-optimizations.py`), cu **verificare pe octeți**:
+`disk_blob == src_blob` pentru toate patru, plus `node --check` curat pe toate
+fișierele din `google-layer/` (`PARSE_FAILURES=0`).
+
+Diferența măsurată nu a fost cosmetică: `gdrive-mcp` a răspuns în **2.264 ms**
+după refacere, față de **29.452 ms** înainte - de **13× mai rapid** cu shim-ul
+async.
+
+### 13.4 O sesiune Picker consumată era raportată ca defect
+
+La 01:18:39 heartbeat-ul a capturat **2 poze noi** alese de Popy și a șters
+sesiunea (`SESSION_DELETE_HTTP=200`, așa cum cere API-ul). La 01:33:37
+heartbeat-ul a sondat din nou sesiunea deja ștearsă, a primit `404
+ENTITY_NOT_FOUND` și a ieșit cu **2**. Punctul de control a văzut acel 2 în
+`C7` și a declarat **FAIL** - pentru faptul că utilizatorul terminase exact
+acțiunea pentru care există pickerul.
+
+Reparat la sursă: `404` este acum starea `SESSION_CONSUMED` (fișierul de
+sesiune este **marcat** `session_id: null, state: consumed`, nu șters -
+rămâne dovadă), cu ieșire 0. `C9` raportează „session consumed - nothing to
+watch".
+
+### 13.5 Două bug-uri în instrumentul de control, descoperite de el însuși
+
+- **`__dirname is not defined`** - ESM nu are `__dirname`; prima rulare a
+  doctorului extins a murit cu **exit 3**, distinct de verdict. Corectat cu
+  `fileURLToPath(import.meta.url)`.
+- **`Cannot read properties of undefined (reading 'OK')`** - în calea de
+  re-probare tranzitorie se citea `v2.byStatus.OK`, dar `evaluate()` întoarce
+  un obiect plat cu `oks`. Explicația a apărut în exact clipa în care Google
+  Books a răspuns 503 - **un instrument care moare la o glimmă a Google nu mai
+  măsoară nimic**. Corectat; re-probarea funcționează:
+  `transient_recovered=books`.
+
+### 13.6 Verdictul final, măsurat
+
+```
+CHECK C1.container   OK   status=running health=healthy image=google-access:1.0.9 restart=unless-stopped
+CHECK C1b.running-code OK   repo=8429fa512919 running=8429fa512919 match=true
+CHECK C2.health      OK   grant=live reauth=false tools=32
+CHECK C3.services    OK   OK=14 REFUSED=2[keep,sites] ERROR=0[]
+CHECK C4.extendlm    OK   token_minutes_left=235 refresh_token=yes cloud_secret_age_min=6
+CHECK C5.browser-mcp OK   server=minimax-notebooklm tools=4
+CHECK C6.mcp-registry OK  enabled=true url=http://127.0.0.1:8766/mcp
+CHECK C10.mcp-paths  OK   checked=23 dead_total=0
+CHECK C7.tasks       OK   count=4
+CHECK C8.consent     OK   listener alive (processes=1)
+CHECK C9.picker      OK   session consumed - nothing to watch
+
+SUMMARY checks=11 failed=0 warnings=0
+VERDICT=PASS
+```
+
+Rularea prin taskul programat: `lastResult=0`, linie nouă în
+`logs/ga-doctor-2026-10-28.log`.
+
+Falsificări (controlul de control poate să se aprindă roșu):
+
+| Falsificare | Rezultat |
+|---|---|
+| `--self-test --fail C1.container` | `VERDICT=FAIL` exit **2** |
+| `--self-test --fail C10.mcp-paths` | `VERDICT=FAIL` exit **2** |
+| `--container NoSuchContainer_zzz` | `VERDICT=FAIL` exit **2** |
+
+### 13.7 Ce a rămas în afara scopului, măsurat și raportat
+
+- `README_SYSTEM_TOPOLOGY_AND_AGENT_GUIDELINES.md` din rădăcina backbone-ului
+  are **0 octeți**, dar **nu e trunchiat**: este un **symlink** către
+  `C:\Antigravity - SYSTEM TOPOLOGY - 3 Partition System\...`, ținta există
+  (15.936 B). Adăugat în `.gitignore` - un symlink absolut pe o cale locală
+  nu are ce căuta într-un repo PUBLIC.
+- Trei repo-uri stăteau nesting în arborele backbone-ului
+  (`Mavis-Google_Access/`, `Optimus_CD (by Jules)/`, `Optimus_CI (by Mavis)/`),
+  fiecare cu istoria și remote-ul lui. Fără regulă în `.gitignore`, un
+  `git add` le-ar fi transformat în **gitlink-uri** (mod 160000) - exact
+  defectul reparat la `c73fa0b`. Adăugate și verificate cu `check-ignore`.
+- `google-calendar-mcp` rămâne **dezactivat**, pe măsură: serverul său pornește
+  pe HTTP, nu stdio, iar `google-workspace-mcp` acoperă deja Calendar cu un
+  grant read-only și un apel calendarList real.
+
 
 
 

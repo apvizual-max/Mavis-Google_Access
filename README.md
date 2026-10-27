@@ -15,11 +15,38 @@ One Docker container, one MCP server, one credential, no re-authentication frict
 | Heartbeat | Windows task `MavisExtendLMHeartbeat` (every 30 min) - rotates the token when it nears expiry and republishes the snapshot |
 | Cloud | `MAVIS-CLOUD/.github/workflows/google-access.yml` - builds the same image from this repo and probes the live APIs (last run: success, `notebooklm` OK) |
 | Source of truth | this folder (`container/` = the exact content of the image) |
+| **Control point** | `node scripts/ga-doctor.mjs` - **one command, one verdict** over 11 checks; scheduled task `Google_Access_Doctor` (every 30 min). See `docs/PUNCT-DE-CONTROL.md` |
 
 The container never touches the network for credentials and never asks for a
 second sign-in. If the grant ever dies, the MCP tools say so explicitly
 (`MISSING_SCOPE` / `GOOGLE_HTTP_401`) and `google_scope_upgrade` prints the one
 consent URL that repairs it in a single browser click.
+
+---
+
+## The control point (read this first)
+
+```powershell
+node scripts/ga-doctor.mjs
+```
+
+This is how a new session - or **any other AI on this station** - knows the
+connection works, without rebuilding anything:
+
+```
+SUMMARY checks=11 failed=0 warnings=0
+VERDICT=PASS
+```
+
+Exit `0` = green, `2` = a check failed, `3` = the control point itself crashed
+(never reported as green). The checks cover the container, the bytes actually
+running inside it, the live grant, a live call per Google service, the
+ExtendLM token, the Browser MCP handshake, the global MCP registry, the
+integrity of every path that registry points to, the scheduled tasks, the
+re-consent listener and the Photo Picker session.
+
+Full specification, with the defect each check was born from:
+**`docs/PUNCT-DE-CONTROL.md`**.
 
 ---
 
