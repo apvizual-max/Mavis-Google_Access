@@ -50,6 +50,110 @@ const OAUTH_TOKEN_URL = "https://oauth2.googleapis.com/token";
 const EXTENDLM_MCP_URL = process.env.GA_EXTENDLM_URL || "https://mcp.extendlm.com/mcp";
 
 // ---------------------------------------------------------------------------
+// ExtendLM access token: minted, refreshed, and persisted in the volume.
+//
+// The access token from the authorization code expires in about three hours.
+// Without a refresh path, the whole NotebookLM capability dies silently at
+// that moment - the tool would start answering 401. The refresh token lives
+// in the same volume file, so renewal is code, not a human action.
+// ---------------------------------------------------------------------------
+const EXTENDLM_REFRESH_SKEW_MS = 120000; // renew two minutes before expiry
+
+function extendlmConfigPath() {
+  return path.join(DATA_DIR, "extendlm.json");
+}
+
+function readExtendlmConfig() {
+  try {
+    return JSON.parse(fs.readFileSync(extendlmConfigPath(), "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+async function refreshExtendlmToken(cfg) {
+  if (!cfg || !cfg.refresh_token || !cfg.token_endpoint || !cfg.client_id) {
+    throw new Error(
+      "EXTENDLM_NO_REFRESH: " + extendlmConfigPath() + " has no refresh_token/token_endpoint/client_id."
+    );
+  }
+  const res = await fetch(cfg.token_endpoint, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      Accept: "application/json",
+    },
+    body: new URLSearchParams({
+      grant_type: "refresh_token",
+      refresh_token: cfg.refresh_token,
+      client_id: cfg.client_id,
+    }).toString(),
+  });
+  const text = await res.text();
+  if (!res.ok) {
+    throw new Error("EXTENDLM_REFRESH_HTTP_" + res.status + ": " + text.slice(0, 200));
+  }
+  const j = JSON.parse(text);
+  const now = Date.now();
+  const next = {
+    ...cfg,
+    token: j.access_token,
+    access_token: j.access_token,
+    // The server may rotate the refresh token; keep the new one when it sent one.
+    refresh_token: j.refresh_token || cfg.refresh_token,
+    token_type: j.token_type || cfg.token_type || "Bearer",
+    scope: j.scope || cfg.scope,
+    expires_at: j.expires_in ? now + Number(j.expires_in) * 1000 : null,
+    refreshed_at: new Date(now).toISOString(),
+  };
+  const tmp = extendlmConfigPath() + ".tmp";
+  fs.writeFileSync(tmp, JSON.stringify(next, null, 2), "utf8");
+  fs.renameSync(tmp, extendlmConfigPath());
+  return next;
+}
+
+async function extendlmAccessToken(force) {
+  const cfg = readExtendlmConfig();
+  if (!cfg || !cfg.token) {
+    throw new Error(
+      "NO_EXTENDLM_TOKEN: put {\"token\":\"...\"} in " + extendlmConfigPath() + " on the host. Run extendlm-provision.mjs and authorize in the browser."
+    );
+  }
+  const expiresAt = cfg.expires_at ? Number(cfg.expires_at) : 0;
+  const expired = !expiresAt || Date.now() >= expiresAt;
+  const stale = expired || Date.now() >= expiresAt - EXTENDLM_REFRESH_SKEW_MS;
+  // The ExtendLM refresh token is ROTATED by the server: a new refresh token
+  // invalidates the old one. Two instances refreshing from the same copy
+  // would fight, and the loser would break the winner. So the instance that
+  // owns the token refreshes; every other instance only consumes a snapshot
+  // (GA_EXTENDLM_NO_REFRESH=1 - that is the Cloud).
+  const noRefresh = process.env.GA_EXTENDLM_NO_REFRESH === "1";
+  if (force || stale) {
+    if (noRefresh) {
+      if (expired) {
+        throw new Error(
+          "EXTENDLM_TOKEN_EXPIRED_NO_REFRESH: this instance must not rotate the shared refresh token (GA_EXTENDLM_NO_REFRESH=1). The owner instance has to publish a fresh snapshot."
+        );
+      }
+      return cfg.token;
+    }
+    if (cfg.refresh_token && cfg.token_endpoint && cfg.client_id) {
+      try {
+        return (await refreshExtendlmToken(cfg)).token;
+      } catch (e) {
+        // A token that is still valid does not need a renewal to work.
+        if (force || expired) throw e;
+      }
+    } else if (force) {
+      throw new Error(
+        "EXTENDLM_NO_REFRESH: " + extendlmConfigPath() + " has no refresh_token - re-authorize with extendlm-provision.mjs."
+      );
+    }
+  }
+  return cfg.token;
+}
+
+// ---------------------------------------------------------------------------
 // API hosts - ONE source of truth, measured from the discovery documents.
 //
 // Measured defect 2026-10-27: a single "https://www.googleapis.com" base made
@@ -71,6 +175,7 @@ const API_BASE = {
   slides: "https://slides.googleapis.com",
   forms: "https://forms.googleapis.com",
   photoslibrary: "https://photoslibrary.googleapis.com",
+  photospicker: "https://photospicker.googleapis.com",
   books: "https://www.googleapis.com",
   tasks: "https://tasks.googleapis.com",
   keep: "https://keep.googleapis.com",
@@ -108,6 +213,9 @@ const FULL_SCOPES = [
   "https://www.googleapis.com/auth/photoslibrary",
   "https://www.googleapis.com/auth/photoslibrary.readonly.appcreateddata",
   "https://www.googleapis.com/auth/photoslibrary.edit.appcreateddata",
+  // The Photo Picker API is the documented path to library photos after the
+  // 2025-03-31 scope removal: the user picks, the API hands the picks over.
+  "https://www.googleapis.com/auth/photospicker.mediaitems.readonly",
   "https://www.googleapis.com/auth/books",
   "https://www.googleapis.com/auth/tasks",
   "https://www.googleapis.com/auth/script.projects",
@@ -148,7 +256,23 @@ function clearReauthFlag() {
   }
 }
 
-let tokenCache = { access: null, expiresAt: 0, scope: "" };
+let tokenCache = { access: null, expiresAt: 0, scope: "", cred: "" };
+
+// MEASURED 2026-10-27: after a widening consent the credential file is
+// replaced, but the cached access token still belonged to the OLD grant. The
+// container then answered 403 "insufficient authentication scopes" while the
+// very same scope was granted and present in the file. The cache therefore
+// carries a fingerprint of the credential it was minted from.
+function credentialFingerprint(creds) {
+  if (!creds) return "";
+  return (
+    String(creds.refresh_token || "").length +
+    ":" +
+    String(creds.refresh_token || "").slice(-12) +
+    ":" +
+    String(creds.provisioned_at || "")
+  );
+}
 
 async function mintAccessToken() {
   const creds = readCreds();
@@ -183,13 +307,22 @@ async function mintAccessToken() {
     access: json.access_token,
     expiresAt: Date.now() + Number(json.expires_in || 3600) * 1000,
     scope: json.scope || "",
+    cred: credentialFingerprint(creds),
   };
   clearReauthFlag();
   return tokenCache.access;
 }
 
 async function accessToken() {
-  if (tokenCache.access && Date.now() < tokenCache.expiresAt - 60000) return tokenCache.access;
+  const creds = readCreds();
+  const fp = credentialFingerprint(creds);
+  if (
+    tokenCache.access &&
+    Date.now() < tokenCache.expiresAt - 60000 &&
+    tokenCache.cred === fp
+  ) {
+    return tokenCache.access;
+  }
   return mintAccessToken();
 }
 
@@ -251,6 +384,8 @@ function scopeOf(tool) {
     gphotos_create_album: ["https://www.googleapis.com/auth/photoslibrary.appendonly"],
     gphotos_upload: ["https://www.googleapis.com/auth/photoslibrary.appendonly"],
     gphotos_edit_item: ["https://www.googleapis.com/auth/photoslibrary.edit.appcreateddata"],
+    gphotos_picker_start: ["https://www.googleapis.com/auth/photospicker.mediaitems.readonly"],
+    gphotos_picker_result: ["https://www.googleapis.com/auth/photospicker.mediaitems.readonly"],
     gbooks_search: [],
     gkeep_list: [],
     gtasks_list: ["https://www.googleapis.com/auth/tasks"],
@@ -534,6 +669,35 @@ const TOOLS = [
         description: { type: "string" },
       },
       required: ["media_item_id"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "gphotos_picker_start",
+    description:
+      "Open the Google Photos Picker so the user can pick photos and videos from their real library " +
+      "(photospicker.mediaitems.readonly). Returns a picker_uri to open in the signed-in browser. " +
+      "This is the supported path to library media after Google removed library-wide read on 2025-03-31.",
+    inputSchema: {
+      type: "object",
+      properties: { max_item_count: { type: "number" } },
+      required: [],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "gphotos_picker_result",
+    description:
+      "Read the media items the user picked in a picker session (gphotos_picker_start). " +
+      "Returns the picked items with their ids, filenames and base urls. The session is deleted " +
+      "automatically when the last page has been read.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        session_id: { type: "string" },
+        page_token: { type: "string" },
+      },
+      required: ["session_id"],
       additionalProperties: false,
     },
   },
@@ -988,6 +1152,79 @@ const IMPL = {
     return { id: r.id, description: r.description };
   },
 
+  async gphotos_picker_start(args) {
+    // MEASURED: photospicker.googleapis.com is already enabled in the project,
+    // and the current API takes NO pollingUri - sessions.create returns a
+    // pickerUri the user opens in the browser signed into their own account.
+    const max = Math.min(Number(args.max_item_count || 2000), 2000);
+    const r = await gfetch(API_BASE.photospicker + "/v1/sessions", {
+      method: "POST",
+      body: JSON.stringify({ pickingConfig: { maxItemCount: String(max) } }),
+    });
+    return {
+      session_id: r.id,
+      picker_uri: r.pickerUri,
+      media_items_set: Boolean(r.mediaItemsSet),
+      expire_time: r.expireTime,
+      polling: r.pollingConfig || null,
+      instruction:
+        "Open picker_uri in the browser signed in to the Google account that owns the photos, select the items, confirm. Then call gphotos_picker_result with this session_id.",
+    };
+  },
+
+  async gphotos_picker_result(args) {
+    const id = String(args.session_id || "");
+    if (!id) {
+      throw new Error("SESSION_ID_REQUIRED: gphotos_picker_result needs the session id from gphotos_picker_start.");
+    }
+    const s = await gfetch(API_BASE.photospicker + "/v1/sessions/" + encodeURIComponent(id));
+    if (!s.mediaItemsSet) {
+      return {
+        session_id: id,
+        media_items_set: false,
+        count: 0,
+        items: [],
+        instruction: "The user has not finished picking yet. Poll again in a few seconds.",
+      };
+    }
+    const q =
+      "?sessionId=" +
+      encodeURIComponent(id) +
+      "&pageSize=100" +
+      (args.page_token ? "&pageToken=" + encodeURIComponent(args.page_token) : "");
+    const r = await gfetch(API_BASE.photospicker + "/v1/mediaItems" + q);
+    const items = r.mediaItems || [];
+    const nextPageToken = r.nextPageToken || null;
+    // The API asks clients to delete sessions so they do not pile up.
+    let sessionDeleted = false;
+    if (!nextPageToken) {
+      try {
+        await gfetch(API_BASE.photospicker + "/v1/sessions/" + encodeURIComponent(id), {
+          method: "DELETE",
+        });
+        sessionDeleted = true;
+      } catch {
+        /* cleanup is best effort */
+      }
+    }
+    return {
+      session_id: id,
+      media_items_set: true,
+      count: items.length,
+      next_page_token: nextPageToken,
+      session_deleted: sessionDeleted,
+      items: items.map((it) => ({
+        id: it.id,
+        type: it.type,
+        create_time: it.createTime,
+        mime_type: it.mediaFile && it.mediaFile.mimeType,
+        filename: it.mediaFile && it.mediaFile.filename,
+        base_url: it.mediaFile && it.mediaFile.baseUrl,
+      })),
+      note: "base_url is valid for 60 minutes and needs the same bearer token to fetch the bytes.",
+    };
+  },
+
   async gbooks_search(args) {
     const r = await gfetch(
       API_BASE.books + "/books/v1/volumes?q=" + encodeURIComponent(args.q) + "&maxResults=" + Math.min(Number(args.max_results || 10), 40)
@@ -1060,26 +1297,13 @@ const IMPL = {
   },
 
   async notebooklm_ask(args) {
-    const cfgPath = path.join(DATA_DIR, "extendlm.json");
-    let cfg = {};
-    try {
-      cfg = JSON.parse(fs.readFileSync(cfgPath, "utf8"));
-    } catch {
-      throw new Error(
-        "NO_EXTENDLM_TOKEN: put {\"token\":\"...\"} in " + cfgPath + " on the host. Run extendlm-provision.mjs and authorize in the browser."
-      );
-    }
-    const token = cfg.token;
-    if (!token) {
-      throw new Error("NO_EXTENDLM_TOKEN: " + cfgPath + " has no \"token\" field.");
-    }
     const question = String((args && args.question) || "").trim();
     if (!question) throw new Error("QUESTION_REQUIRED: notebooklm_ask needs a question.");
 
     // MEASURED: the ExtendLM MCP is stateless - initialize answers 400 and no
     // mcp-session-id is issued, but tools/list and tools/call answer 200 with
     // the bearer token alone. Every call therefore carries the token.
-    const rpc = async (method, params) => {
+    const rpc = async (method, params, token) => {
       const res = await fetch(EXTENDLM_MCP_URL, {
         method: "POST",
         headers: {
@@ -1115,8 +1339,8 @@ const IMPL = {
       return result || {};
     };
 
-    const callTool = async (name, argumentsObj) => {
-      const res = await rpc("tools/call", { name, arguments: argumentsObj });
+    const callTool = async (name, argumentsObj, token) => {
+      const res = await rpc("tools/call", { name, arguments: argumentsObj }, token);
       const text = Array.isArray(res.content)
         ? res.content.map((c) => (c && (c.text || c.data)) || "").join("\n").trim()
         : "";
@@ -1129,55 +1353,72 @@ const IMPL = {
       return { text, parsed, isError: Boolean(res.isError) };
     };
 
-    // 1. MEASURED shape: { connections: [{ extension_connection, users: [{ auth_user_id, is_selected }] }] }
-    let extensionConnection = args.extension_connection;
-    let authUserId = args.auth_user_id;
-    if (!extensionConnection || !authUserId) {
-      const users = await callTool("list_notebook_users", {});
-      const conn = (users.parsed.connections || [])[0];
-      if (!conn || !conn.extension_connection) {
-        throw new Error(
-          "EXTENDLM_NO_CONNECTION: the ExtendLM extension is not connected to a Gemini Notebook account. Open the ExtendLM extension in Chrome and connect it."
+    const execute = async (token) => {
+      // 1. MEASURED shape: { connections: [{ extension_connection, users: [{ auth_user_id, is_selected }] }] }
+      let extensionConnection = args.extension_connection;
+      let authUserId = args.auth_user_id;
+      if (!extensionConnection || !authUserId) {
+        const users = await callTool("list_notebook_users", {}, token);
+        const conn = (users.parsed.connections || [])[0];
+        if (!conn || !conn.extension_connection) {
+          throw new Error(
+            "EXTENDLM_NO_CONNECTION: the ExtendLM extension is not connected to a Gemini Notebook account. Open the ExtendLM extension in Chrome and connect it."
+          );
+        }
+        extensionConnection = extensionConnection || conn.extension_connection;
+        const selected =
+          (conn.users || []).find((u) => u.is_selected) || (conn.users || [])[0];
+        authUserId = authUserId || (selected && selected.auth_user_id) || "0";
+      }
+
+      // 2. MEASURED shape: { items: [{ id, title, source_count, ... }] }
+      let notebookId = args.notebook_id;
+      let notebookTitle = null;
+      if (!notebookId) {
+        const listed = await callTool(
+          "list_notebooks",
+          { extension_connection: extensionConnection, auth_user_id: authUserId, limit: 25 },
+          token
         );
+        const items = listed.parsed.items || listed.parsed.notebooks || [];
+        if (!items.length) {
+          throw new Error("EXTENDLM_NO_NOTEBOOKS: no notebook is visible for this account.");
+        }
+        notebookId = items[0].id;
+        notebookTitle = items[0].title || null;
       }
-      extensionConnection = extensionConnection || conn.extension_connection;
-      const selected =
-        (conn.users || []).find((u) => u.is_selected) || (conn.users || [])[0];
-      authUserId = authUserId || (selected && selected.auth_user_id) || "0";
-    }
 
-    // 2. MEASURED shape: { items: [{ id, title, source_count, ... }] }
-    let notebookId = args.notebook_id;
-    let notebookTitle = null;
-    if (!notebookId) {
-      const listed = await callTool("list_notebooks", {
-        extension_connection: extensionConnection,
+      // 3. The actual question.
+      const asked = await callTool(
+        "ask_notebook",
+        {
+          extension_connection: extensionConnection,
+          auth_user_id: authUserId,
+          notebook_id: notebookId,
+          question,
+        },
+        token
+      );
+      return {
+        notebook_id: notebookId,
+        notebook_title: notebookTitle,
         auth_user_id: authUserId,
-        limit: 25,
-      });
-      const items = listed.parsed.items || listed.parsed.notebooks || [];
-      if (!items.length) {
-        throw new Error("EXTENDLM_NO_NOTEBOOKS: no notebook is visible for this account.");
-      }
-      notebookId = items[0].id;
-      notebookTitle = items[0].title || null;
-    }
-
-    // 3. The actual question.
-    const asked = await callTool("ask_notebook", {
-      extension_connection: extensionConnection,
-      auth_user_id: authUserId,
-      notebook_id: notebookId,
-      question,
-    });
-    return {
-      notebook_id: notebookId,
-      notebook_title: notebookTitle,
-      auth_user_id: authUserId,
-      answer: asked.parsed && asked.parsed.answer ? asked.parsed.answer : asked.text,
-      answer_chars: asked.text ? asked.text.length : 0,
-      is_error: asked.isError,
+        answer: asked.parsed && asked.parsed.answer ? asked.parsed.answer : asked.text,
+        answer_chars: asked.text ? asked.text.length : 0,
+        is_error: asked.isError,
+      };
     };
+
+    // The access token expires on its own. A 401 means the token died, not
+    // that the grant died: renew it and try once more, silently.
+    try {
+      return await execute(await extendlmAccessToken(false));
+    } catch (e) {
+      if (String(e && e.message).includes("EXTENDLM_HTTP_401")) {
+        return await execute(await extendlmAccessToken(true));
+      }
+      throw e;
+    }
   },
 };
 

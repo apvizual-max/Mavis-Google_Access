@@ -52,13 +52,33 @@ jobs:
           # Never print the credential: report only its shape.
           node -e 'const c=require("./_src/data/credentials.json");console.log("CREDENTIAL_FIELDS="+Object.keys(c).join(",")+"scope_chars="+String(c.scope||"").length)'
 
+      - name: Materialize the ExtendLM credential from the secret
+        env:
+          GOOGLE_EXTENDLM_CREDENTIAL_B64: ${{ secrets.GOOGLE_EXTENDLM_CREDENTIAL_B64 }}
+        run: |
+          # Optional on purpose: without the secret the probe reports notebooklm
+          # as REFUSED, it does not fail the run.
+          if [ -z "$GOOGLE_EXTENDLM_CREDENTIAL_B64" ]; then
+            echo "EXTENDLM_SECRET=absent (notebooklm stays REFUSED)"
+            exit 0
+          fi
+          printf '%s' "$GOOGLE_EXTENDLM_CREDENTIAL_B64" | sed '1s/^\xEF\xBB\xBF//' | tr -d '\r\n' | base64 -d > _src/data/extendlm.json
+          if [ ! -s _src/data/extendlm.json ]; then
+            echo "FATAL=extendlm secret missing or empty"
+            exit 1
+          fi
+          node -e 'const c=require("./_src/data/extendlm.json");console.log("EXTENDLM_FIELDS="+Object.keys(c).join(",")+"token_len="+String(c.token||"").length+"refresh="+(c.refresh_token?"yes":"no"))'
+
       - name: Build the image
         run: docker build -t google-access:cloud _src/container
 
       - name: Start the container
         run: |
+          # GA_EXTENDLM_NO_REFRESH=1: the host owns the ExtendLM refresh token
+          # and rotates it. A second rotation from the Cloud would invalidate
+          # the host copy, so the Cloud only ever consumes the snapshot.
           docker run -d --name Google_Access --restart unless-stopped \
-            -p 127.0.0.1:8766:8766 -e GA_PORT=8766 \
+            -p 127.0.0.1:8766:8766 -e GA_PORT=8766 -e GA_EXTENDLM_NO_REFRESH=1 \
             -v "$PWD/_src/data:/data" google-access:cloud
           for i in $(seq 1 30); do
             if curl -sf http://127.0.0.1:8766/health > /tmp/health.json; then break; fi
