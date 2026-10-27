@@ -593,12 +593,12 @@ const TOOLS = [
   {
     name: "notebooklm_ask",
     description:
-      "Ask NotebookLM through the ExtendLM MCP server (https://mcp.extendlm.com/mcp). Needs an ExtendLM token: put it in /data/extendlm.json as {\"token\":\"...\"}. The browser extension must be connected.",
+      "Ask a question to a Gemini Notebook (NotebookLM) notebook through the ExtendLM MCP server (https://mcp.extendlm.com/mcp). Needs an ExtendLM token in /data/extendlm.json and the ExtendLM browser extension connected to your Google account. Without notebook_id the first visible notebook is used and its title is returned with the answer.",
     inputSchema: {
       type: "object",
       properties: {
-        question: { type: "string" },
-        notebook_id: { type: "string" },
+        question: { type: "string", description: "The question to ask the notebook." },
+        notebook_id: { type: "string", description: "Optional notebook id. Defaults to the first notebook visible to the account." },
       },
       required: ["question"],
       additionalProperties: false,
@@ -1066,41 +1066,118 @@ const IMPL = {
       cfg = JSON.parse(fs.readFileSync(cfgPath, "utf8"));
     } catch {
       throw new Error(
-        "NO_EXTENDLM_TOKEN: put {\"token\":\"...\"} in " + cfgPath + " on the host. The ExtendLM MCP page (mcp.extendlm.com/mcp) issues the token once, in the browser."
+        "NO_EXTENDLM_TOKEN: put {\"token\":\"...\"} in " + cfgPath + " on the host. Run extendlm-provision.mjs and authorize in the browser."
       );
     }
     const token = cfg.token;
-    const init = await fetch(EXTENDLM_MCP_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json, text/event-stream",
-        Authorization: "Bearer " + token,
-      },
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: 1,
-        method: "initialize",
-        params: {
-          protocolVersion: "2024-11-05",
-          capabilities: {},
-          clientInfo: { name: "google-access", version: "1.0" },
+    if (!token) {
+      throw new Error("NO_EXTENDLM_TOKEN: " + cfgPath + " has no \"token\" field.");
+    }
+    const question = String((args && args.question) || "").trim();
+    if (!question) throw new Error("QUESTION_REQUIRED: notebooklm_ask needs a question.");
+
+    // MEASURED: the ExtendLM MCP is stateless - initialize answers 400 and no
+    // mcp-session-id is issued, but tools/list and tools/call answer 200 with
+    // the bearer token alone. Every call therefore carries the token.
+    const rpc = async (method, params) => {
+      const res = await fetch(EXTENDLM_MCP_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json, text/event-stream",
+          Authorization: "Bearer " + token,
         },
-      }),
+        body: JSON.stringify({ jsonrpc: "2.0", id: Date.now() % 100000, method, params }),
+      });
+      const body = await res.text();
+      if (!res.ok) {
+        throw new Error("EXTENDLM_HTTP_" + res.status + ": " + body.slice(0, 300));
+      }
+      const frames = [];
+      const trimmed = body.trim();
+      if (trimmed.startsWith("{")) {
+        frames.push(JSON.parse(trimmed));
+      } else {
+        for (const line of trimmed.split(/\r?\n/)) {
+          if (!line.startsWith("data:")) continue;
+          const raw = line.slice(5).trim();
+          if (!raw) continue;
+          try {
+            frames.push(JSON.parse(raw));
+          } catch {
+            /* not a JSON frame */
+          }
+        }
+      }
+      const err = frames.find((f) => f && f.error);
+      if (err) throw new Error("EXTENDLM_RPC_ERROR: " + JSON.stringify(err.error).slice(0, 300));
+      const result = frames.map((f) => (f && f.result) || {}).find((r) => Object.keys(r).length);
+      return result || {};
+    };
+
+    const callTool = async (name, argumentsObj) => {
+      const res = await rpc("tools/call", { name, arguments: argumentsObj });
+      const text = Array.isArray(res.content)
+        ? res.content.map((c) => (c && (c.text || c.data)) || "").join("\n").trim()
+        : "";
+      let parsed = {};
+      try {
+        parsed = JSON.parse(text || "{}");
+      } catch {
+        parsed = { raw: text };
+      }
+      return { text, parsed, isError: Boolean(res.isError) };
+    };
+
+    // 1. MEASURED shape: { connections: [{ extension_connection, users: [{ auth_user_id, is_selected }] }] }
+    let extensionConnection = args.extension_connection;
+    let authUserId = args.auth_user_id;
+    if (!extensionConnection || !authUserId) {
+      const users = await callTool("list_notebook_users", {});
+      const conn = (users.parsed.connections || [])[0];
+      if (!conn || !conn.extension_connection) {
+        throw new Error(
+          "EXTENDLM_NO_CONNECTION: the ExtendLM extension is not connected to a Gemini Notebook account. Open the ExtendLM extension in Chrome and connect it."
+        );
+      }
+      extensionConnection = extensionConnection || conn.extension_connection;
+      const selected =
+        (conn.users || []).find((u) => u.is_selected) || (conn.users || [])[0];
+      authUserId = authUserId || (selected && selected.auth_user_id) || "0";
+    }
+
+    // 2. MEASURED shape: { items: [{ id, title, source_count, ... }] }
+    let notebookId = args.notebook_id;
+    let notebookTitle = null;
+    if (!notebookId) {
+      const listed = await callTool("list_notebooks", {
+        extension_connection: extensionConnection,
+        auth_user_id: authUserId,
+        limit: 25,
+      });
+      const items = listed.parsed.items || listed.parsed.notebooks || [];
+      if (!items.length) {
+        throw new Error("EXTENDLM_NO_NOTEBOOKS: no notebook is visible for this account.");
+      }
+      notebookId = items[0].id;
+      notebookTitle = items[0].title || null;
+    }
+
+    // 3. The actual question.
+    const asked = await callTool("ask_notebook", {
+      extension_connection: extensionConnection,
+      auth_user_id: authUserId,
+      notebook_id: notebookId,
+      question,
     });
-    const sid = init.headers.get("mcp-session-id");
-    const tools = await fetch(EXTENDLM_MCP_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json, text/event-stream",
-        Authorization: "Bearer " + token,
-        ...(sid ? { "mcp-session-id": sid } : {}),
-      },
-      body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} }),
-    });
-    const body = await tools.text();
-    return { session_id: sid, extendlm_tools: body.slice(0, 4000), question: args.question };
+    return {
+      notebook_id: notebookId,
+      notebook_title: notebookTitle,
+      auth_user_id: authUserId,
+      answer: asked.parsed && asked.parsed.answer ? asked.parsed.answer : asked.text,
+      answer_chars: asked.text ? asked.text.length : 0,
+      is_error: asked.isError,
+    };
   },
 };
 

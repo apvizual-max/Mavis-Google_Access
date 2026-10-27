@@ -84,12 +84,31 @@ unelte fără să le execute. De aceea unealta trebuie să:
 Verificarea stă în `scripts/probe-token.mjs` și în probe-ul de servicii, care
 raportează `NO_EXTENDLM_TOKEN` dacă fișierul lipsește.
 
+### Implementat și măsurat (27 oct 2026, 12:35)
+Exact acest defect a fost găsit în implementarea reală: unelta făcea
+`initialize` + `tools/list` și **nu trimitea întrebarea** - returna lista de
+unelte plus șirul întrebării. Reparația (în `container/server.mjs`) apelează,
+în ordine, `list_notebook_users` -> `list_notebooks` -> `ask_notebook`, cu
+formele măsurate ale răspunsurilor (`connections[].extension_connection`,
+`items[].id`). Proba: `notebook_title=JULES`, `answer_chars=8139`,
+`is_error=false`.
+
 ## Ce rămâne deschis (măsurat, nu presupus)
 
-- Extensia Chrome ExtendLM/NotebookLM trebuie legată de contul Google al
-  utilizatorului; serverul MCP folosește sesiunea extensiilor.
-- Portul 9412 (profilul `minimax-notebooklm` al stratului `google-layer/`) a
-  fost măsurat **închis** în timpul acestei sesiuni.
+- **Corectat:** extensiile Chrome ExtendLM/NotebookLM **sunt conectate** -
+  măsurat `extension_status.connected=true`, contul `apvizual@gmail.com`
+  selectat, tier `NOTEBOOKLM_TIER_PRO_CONSUMER_USER`. Portul 9412 (profilul
+  local `minimax-notebooklm`) e închis și **irrelevant**: extensia din
+  Chrome-ul obișnuit al utilizatorului e cea care contează.
+- **Real**: tokenul de acces expiră în ~3 h de la obținere. `data/extendlm.json`
+  conține și `refresh_token` + `token_endpoint`, dar reînnoirea automată **nu e
+  implementată** încă - la expirare, `notebooklm_ask` va începe să răspundă cu
+  `EXTENDLM_HTTP_401`. Reînnoirea e o singură funcție: `POST /token` cu
+  `grant_type=refresh_token`, pe `token_endpoint` + `client_id` care sunt deja
+  în fișier.
+- **Real**: `notebooklm_ask` ia primul notebook vizibil dacă nu i se dă
+  `notebook_id`; răspunsul întoarce `notebook_title`, ca alegerea să fie
+  vizibilă, nu implicită.
 
 ## Stare măsurată 27 oct 2026, ~12:00
 
@@ -102,3 +121,40 @@ raportează `NO_EXTENDLM_TOKEN` dacă fișierul lipsește.
 - Ce lipsește e un singur lucru, de la om: autentificarea pe `extendlm.com`
   („Continue with Google") și autorizarea aplicației. Restul - schimbul codului,
   scrierea tokenului în volum, repornirea containerului - e automat.
+
+## Stare măsurată 27 oct 2026, 12:29-12:40 - NotebookLM LIVE
+
+**Loginul și autorizarea sunt două lucruri diferite.** Măsurat: la 12:29
+`data/extendlm.json` era absent, deși Popy se autentificase; procesul
+ascultător (node `extendlm-provision.mjs --port 8799`, pornit 11:37:14) era
+**viu** - `LISTENING pid=55620`. Diferența: loginul de pe `extendlm.com` îți
+duce la ecranul de consimțământ; doar acolo se generează `code`-ul pe care
+ascultătorul îl schimbă în token. Am deschis URL-ul de autorizare cu
+`code_challenge` + `state` legate de procesul viu, iar consimțământul a fost
+dat.
+
+| Măsurătoare | Valoare |
+|---|---|
+| callback | `http://127.0.0.1:8799/callback?code=…&state=…` - `state` **identic** cu cel ținut de proces (valoarea nu se publică: nonce de CSRF, consumat) |
+| `data/extendlm.json` | **1118 B**, scris 12:33:24 - `token_len=87`, `refresh_token` prezent, `scope` 436 caractere |
+| `expires_at` | +3 h de la obținere |
+| portul 8799 după schimb | **închis** (`server.close()`) - comportament corect |
+| `TOOL_COUNT` | **160** unelte |
+| `extension_status.connected` | **true** |
+| contul selectat | `apvizual@gmail.com`, `auth_user_id=0`, `is_selected=true` |
+| tier | `NOTEBOOKLM_TIER_PRO_CONSUMER_USER` (`notebook_limit=500`, `source_limit=300`) |
+
+**Leție de măsurare:** taskul de fundal a fost raportat `status=lost`, dar
+procesul node a supraviețuit. *Task pierdut* ≠ *proces mort* - verificarea s-a
+făcut pe obiect (port + PID + command line), nu pe raportul tracker-ului.
+
+**Defect reparat în aceeași zi:** `notebooklm_ask` răspundea `HTTP=200` fără să
+întrebe nimic (făcea doar `initialize` + `tools/list`). Reparația, la sursă:
+`list_notebook_users` -> `list_notebooks` -> `ask_notebook`, cu formele
+măsurate (`connections[].extension_connection`, `items[].id`).
+Proba: `notebook_title=JULES`, `answer_chars=8139`, `is_error=false`.
+
+**Sonda permanentă:** `scripts/probe-notebooklm.mjs` - numără uneltele, citește
+starea extensiei și a contului, tipărește *nume* de unelte (niciodată tokenul),
+și poate cere schema unei unelte (`--schema ask_notebook,list_notebooks`).
+

@@ -17,6 +17,7 @@ import argparse
 import hashlib
 import os
 import shutil
+import subprocess
 import sys
 
 FILES = [
@@ -46,6 +47,10 @@ state/
 *.tmp
 *.log
 __pycache__/
+
+# Working clone of MAVIS-CLOUD - that repo has its own history. A copy of
+# another repository inside a public repository would duplicate it.
+.work/
 """
 
 
@@ -103,6 +108,46 @@ def main():
         with open(gi, "w", encoding="utf-8", newline="\n") as fh:
             fh.write(GITIGNORE)
         print("WROTE .gitignore")
+
+    # The .gitignore is a safety device, so it is verified, not assumed.
+    # Measured 2026-10-27: this script owned the file with a constant that did
+    # not carry the .work/ rule, so a sync silently dropped it and the working
+    # clone of MAVIS-CLOUD (418 files) became visible to "git add -A" inside a
+    # PUBLIC repository. A rule that is only a constant can be dropped silently;
+    # it has to be checked against the real git index.
+    required_ignores = [
+        ("data/credentials.json", "the credential must never be committable"),
+        ("data/extendlm.json", "the ExtendLM token must never be committable"),
+        (".work/MAVIS-CLOUD/README.md", "another repository's clone must stay out"),
+    ]
+    for rel, why in required_ignores:
+        probe = os.path.join(repo_root, rel.replace("/", os.sep))
+        r = subprocess.run(
+            ["git", "-C", repo_root, "check-ignore", "-q", rel],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        if r.returncode != 0:
+            problems.append("NOT_IGNORED %s (%s)" % (rel, why))
+        else:
+            print("IGNORE_OK %s" % rel)
+        if os.path.exists(probe):
+            print("PRESENT_BUT_IGNORED %s" % rel)
+
+    # The stronger property: nothing under the sensitive roots is TRACKED.
+    # A .gitignore rule never untracks a file that is already in the index,
+    # so the index itself has to be inspected.
+    tracked = subprocess.run(
+        ["git", "-C", repo_root, "ls-files"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    tracked_paths = [p for p in tracked.stdout.decode("utf-8", "replace").splitlines() if p]
+    sensitive = [p for p in tracked_paths if p.startswith(("data/", "logs/", "state/", ".work/"))]
+    if sensitive:
+        problems.append("TRACKED_SENSITIVE_PATH count=%d sample=%s" % (len(sensitive), sensitive[0]))
+    else:
+        print("TRACKED_CHECK_OK files=%d sensitive=0" % len(tracked_paths))
 
     # A credential inside the repo would be a leak, not a copy.
     for root, _dirs, names in os.walk(args.dest):

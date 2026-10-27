@@ -188,3 +188,96 @@ Confirmat din două surse independente: directorul oficial Google
 listează niciun serviciu NotebookLM. Deci ExtendLM e singurul drum prin MCP,
 și e legat corect: client dinamic, PKCE S256, ascultător pe `127.0.0.1:8799`
 cu fereastră de 180 de minute.
+
+## 9. 27 oct 2026, 12:29-12:42 - NotebookLM a devenit LIVE
+
+### 9.1 Loginul nu era pasul lipsă - autorizarea era
+La 12:29 `data/extendlm.json` era **ABSENT**, iar portul `127.0.0.1:8799`
+asculta în continuare. Diferența dintre „am făcut login" și „am autorizat" a
+fost măsurată, nu ghicită: procesul ascultător (node
+`extendlm-provision.mjs --port 8799`, pornit 11:37:14) ține `state` +
+`code_verifier`; deschiderea URL-ului de autorizare produce callbackul cu
+`code`. Loginul pe `extendlm.com` nu produce cod - doar îți permite să treci
+de ecranul de consimțământ.
+
+Rezultatul, măsurat:
+- callbackul a ajuns: `http://127.0.0.1:8799/callback?code=…&state=…`, cu
+  `state` **identic** cu cel ținut de procesul viu (valoarea nu se publică:
+  e nonce de CSRF, consumat deja);
+- `data/extendlm.json`: **1118 B**, scris la 12:33:24 - `token_len=87`,
+  `refresh_token` prezent, `scope` 436 caractere, `obtained_at=2026-10-27T10:33:24Z`,
+  `expires_at` = +3 h;
+- portul `8799` s-a închis imediat după schimb (`server.close()`) - comportament
+  corect, nu o cădere.
+
+**Leție de măsurare:** taskul de fundal a fost raportat `status=lost` la 12:28,
+dar procesul node a supraviețuit (măsurat la 12:29: `LISTENING pid=55620`,
+pornit 11:37:14). *Task pierdut* ≠ *proces mort*. Verificarea s-a făcut pe
+obiectul real (port + PID + command line), nu pe raportul tracker-ului.
+
+### 9.2 DEFECT MĂSURAT: `notebooklm_ask` nu trimitea întrebarea
+Cu tokenul prezent, unealta răspundea `HTTP=200` - dar **nu întreba nimic**:
+implementarea făcea `initialize` + `tools/list` și returna lista de unelte
+plus șirul întrebării. Era exact cazul pe care `docs/EXTENDLM.md` îl avertiza
+(`## De ce notebooklm_ask trebuie să apeleze unelte reale`): o probă care
+listează unelte poate trece cu un token mort, pentru că nu execută nimic.
+
+Reparația, la sursă (`container/server.mjs`):
+1. `list_notebook_users` -> `extension_connection` + `auth_user_id`
+   (forma măsurată: `{connections:[{extension_connection, users:[{auth_user_id, is_selected}]}]}`);
+2. `list_notebooks` -> primul notebook (forma măsurată: cheie **`items`**, câmp **`id`**);
+3. `ask_notebook` -> întrebarea, cu răspunsul întors.
+
+### 9.3 Starea măsurată a lanțului ExtendLM
+| Măsurătoare | Valoare |
+|---|---|
+| `TOOL_COUNT` | **160** unelte |
+| `TOOLS_HTTP` | 200 (`INIT_HTTP=400` - serverul e stateless, fără `mcp-session-id`) |
+| `extension_status.connected` | **true** |
+| contul selectat | `apvizual@gmail.com`, `auth_user_id=0`, `is_selected=true` |
+| `get_notebooklm_capabilities` | `authenticated=true`, `tier=NOTEBOOKLM_TIER_PRO_CONSUMER_USER`, `notebook_limit=500`, `source_limit=300` |
+| notebookuri vizibile | `JULES` (184 surse), `GEMINI & AI STUDIO` (251 surse), … |
+
+**Corectură de drift:** `docs/EXTENDLM.md` lista ca „deschis" faptul că portul
+9412 (profilul `minimax-notebooklm`) era închis. Măsurătoarea arată că aceasta
+era o ipoteză greșită: extensia din Chrome-ul obișnuit al lui Popy **este
+conectată** (`connected=true`). Portul 9412 e un profil local, nu canalul
+extensiei.
+
+### 9.4 Proba reală prin unealta reparată
+`notebooklm_ask` cu întrebarea „In one short paragraph: what is this notebook
+about, and what are its main sources?"` ->
+`notebook_id=f7ea4298-8604-4df3-ab3f-a6d634d4cbc6`, `notebook_title=JULES`,
+`answer_chars=8139`, `is_error=false`. Răspunsul e despre Google Jules, cu
+numărul de surse și depozitele reale - nu un mesaj de eroare deghizat.
+
+### 9.5 Bilanț: 14 OK / 2 REFUSED / 0 ERROR
+`TALLY={"OK":14,"REFUSED":2,"ERROR":0,"SKIP":0}`, `VERDICT=PASS`, `PROBE_EXIT=0`.
+`notebooklm` a trecut din REFUSED în OK. Rămân REFUSED doar cele două API-uri
+retrase de Google: **keep** (403, scope inexistent) și **sites** (404, API
+retiras).
+
+Container: `google-access:1.0.7`, `running|healthy`, `grant=live`,
+`reauth_required=false`, 30 unelte. Semnătura lui `/app/server.mjs` din imagine
+e identică cu cea din repo (`c9605239322b420b…`) - `MATCH=True`.
+
+### 9.6 DEFECT MĂSURAT: sync-ul ștergea regula `.work/` din `.gitignore`
+`sync-container-source.py` scria `.gitignore` dintr-o constantă proprie care
+nu conținea regula `.work/`. La rularea de după reparația serverului, regula a
+dispărut din fișier, iar `git status` a expus o clonă de lucru a repo-ului
+MAVIS-CLOUD (418 fișiere, 15 MB) - într-un repository **public**. Nu s-a
+introdus nimic în istoric, pentru că poarta a oprit înainte de commit.
+
+Reparația, la sursă: constanta conține acum regula completă, iar scriptul
+**verifică** proprietatea reală în loc să o presupună:
+- `git check-ignore` pentru `data/credentials.json`, `data/extendlm.json`,
+  `.work/MAVIS-CLOUD/README.md`;
+- `git ls-files` - nimic sub `data/`, `logs/`, `state/`, `.work/` să fie
+  **urmărit** (o regulă de `.gitignore` nu scoate din index un fișier deja
+  adăugat).
+
+Falsificare pe copie: într-un repo-copy cu `data/credentials.json` adăugat forțat,
+poarta a raportat `PROBLEMS=2` (`NOT_IGNORED` + `TRACKED_SENSITIVE_PATH`) și a
+ieșit cu **2**; repo-ul real a rămas neatins. Pe repo-ul real:
+`TRACKED_CHECK_OK files=79 sensitive=0`, `PROBLEMS=0`.
+
