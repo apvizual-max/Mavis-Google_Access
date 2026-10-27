@@ -100,7 +100,40 @@ all media items **created by your app**", `albums.list` = „Lists all albums
 | `photoslibrary.appendonly` | **activ și dovedit**: creează album și încarcă media în biblioteca reală (probă fără creare: `POST /v1/albums` cu corp gol -> 400 „Request must have a title for the album.", deci autorizarea a trecut) |
 | `photoslibrary.readonly.appcreateddata` | **acordat** la 12:06 (consimțământul #3) - citire doar a conținutului creat de aplicație |
 | `photoslibrary.edit.appcreateddata` | **acordat** la 12:06 (consimțământul #3) - editare conținut creat de aplicație |
-| `photospicker.mediaitems.readonly` | **nefolosit**: `sessions.create` cere un `pollingUri` public, la care Google trebuie să ajungă |
+| `photospicker.mediaitems.readonly` | **acordat și FUNCTIONAL** (consimțământul cu scope nou, 27 oct 2026) - corectat 13:29: afirmația veche („cere un `pollingUri` public") era depășită; API-ul curent **nu** cere `pollingUri` |
 
 Regula rămâne: înainte de a folosi o metodă de API - verific-o în discovery
 document și în data retragerii din documentație, nu din memorie.
+
+## Photo Picker API - singura cale de citit biblioteca utilizatorului
+
+Măsurat 27 oct 2026 (nu din documentație):
+
+| Punct | Măsurătoare |
+|---|---|
+| gazdă | `https://photospicker.googleapis.com` (API deja activat în proiect) |
+| scope | `https://www.googleapis.com/auth/photospicker.mediaitems.readonly` |
+| creare sesiune | `POST /v1/sessions` cu `{"pickingConfig":{"maxItemCount":"2000"}}` → `HTTP=200` |
+| răspuns | `pickerUri` (URL de deschis în browserul autentificat), `expireTime`, `polling.pollInterval=5s` |
+| citire | `GET /v1/sessions/{id}` → `mediaItemsSet`; `GET /v1/mediaItems?sessionId=…` → itemele alese |
+| curățenie | `DELETE /v1/sessions/{id}` - API-ul cere ca sesiunile să nu se acumuleze |
+| **nu cere** | `pollingUri` public - documentația veche din acest repo era depășită |
+
+Uneltele: `gphotos_picker_start` (creează sesiunea, întoarce `picker_uri`) și
+`gphotos_picker_result` (citește itemele alese; șterge sesiunea când nu mai
+există `nextPageToken`).
+
+**Ce nu poate fi automatizat, prin design:** selectarea pozelor e o acțiune a
+utilizatorului în interfața Google (`picker_uri`). API-ul e construit ca
+„utilizatorul alege ce îți dă voie să citești". Un agent nu poate apăsa în
+selectarea din contul altcuiva - și nici nu ar trebui.
+
+Sesiune măsurată prin container: `c39d0b83-90b2-49a2-bc64-29dd63db92c0`,
+`expire_time=2026-11-03T11:28:05Z`. O sesiune anterioară, creată de pe host:
+`71f24e8b-7223-48a7-91eb-7c699a46322c`.
+
+**Defect reparat pe drum (măsurat):** după lărgirea consimțământului, containerul
+răspundea `403 insufficient authentication scopes` deși scope-ul era acordat -
+tokenul de acces era în cache din grantul vechi. Cache-ul poartă acum amprenta
+credentialului (`credentialFingerprint`) și se invalidează la schimbare.
+

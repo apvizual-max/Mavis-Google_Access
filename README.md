@@ -6,11 +6,14 @@ One Docker container, one MCP server, one credential, no re-authentication frict
 
 | | |
 |---|---|
-| Container | `Google_Access` (Docker, image `google-access:1.0.4`) |
+| Container | `Google_Access` (Docker, image `google-access:1.0.9`) |
 | MCP endpoint | `http://127.0.0.1:8766/mcp` (Streamable HTTP, JSON-RPC 2.0) |
 | Health | `http://127.0.0.1:8766/health` |
 | Credential | one OAuth refresh token, in the mounted volume `data/credentials.json` - **never in an image layer** |
-| Grant | 30 scopes on `apvizual@gmail.com`, verified live against `oauth2.googleapis.com/tokeninfo` |
+| Grant | **33 scopes** on `apvizual@gmail.com`, verified live against `oauth2.googleapis.com/tokeninfo` |
+| NotebookLM | through ExtendLM (MCP), token rotated automatically by the host, snapshot published to the Cloud secret |
+| Heartbeat | Windows task `MavisExtendLMHeartbeat` (every 30 min) - rotates the token when it nears expiry and republishes the snapshot |
+| Cloud | `MAVIS-CLOUD/.github/workflows/google-access.yml` - builds the same image from this repo and probes the live APIs (last run: success, `notebooklm` OK) |
 | Source of truth | this folder (`container/` = the exact content of the image) |
 
 The container never touches the network for credentials and never asks for a
@@ -29,7 +32,10 @@ Google APIs and classifies the ANSWER, not the request:
 - `REFUSED` - the API answered with a refusal (this is a measured refusal, not a crash)
 - `ERROR` / `SKIP` - the call did not answer (never reported as success)
 
-Last measured run (2026-10-27, image 1.0.4, grant of 30 scopes):
+Last measured run (2026-10-27 13:28, image 1.0.9, grant of 33 scopes):
+`TALLY OK=14 REFUSED=2 ERROR=0 SKIP=0`, `VERDICT=PASS`, `PROBE_EXIT=0`.
+The same tally came out of the Cloud runner (run `40497337673`, conclusion
+`success`).
 
 | Service | Tool | Result |
 |---|---|---|
@@ -44,11 +50,11 @@ Last measured run (2026-10-27, image 1.0.4, grant of 30 scopes):
 | Sheets | `gsheets_read` | OK - real sheet |
 | Apps Script | `gscript_list` | OK - 1 project |
 | YouTube | `youtube_my_videos` | OK - channel data |
-| Photos | `gphotos_list` | see `docs/STARE-MASURATA.md` |
-| Chat | `gchat_spaces` | see `docs/STARE-MASURATA.md` |
+| Photos | `gphotos_list` / `gphotos_picker_start` | OK - app-created content; the full library is reachable only through the **Photo Picker**, where the user selects (see `docs/TINERE-API-GOOGLE.md`) |
+| Chat | `gchat_spaces` | OK - 15 spaces |
 | Keep | `gkeep_list` | refused by Google - no grantable scope exists |
 | Sites | `gsites_list` | refused by Google - the API was retired |
-| NotebookLM | `notebooklm_ask` | ExtendLM token - see `docs/EXTENDLM.md` |
+| NotebookLM | `notebooklm_ask` | **OK** - live answer through ExtendLM (see `docs/EXTENDLM.md`) |
 
 Two services are refused by Google itself and are reported as such, never
 hidden: **Keep** publishes no user-OAuth scope (workspace-admin only) and the
@@ -61,16 +67,18 @@ are absent from the grant.
 ## Rebuilding the container from this folder
 
 ```powershell
-docker build -t google-access:1.0.4 "C:\Users\apviz\.minimax-agent\projects\Mavis-Google_Access\container"
+docker build -t google-access:1.0.9 -f "C:\Users\apviz\.minimax\google-access\Dockerfile" "C:\Users\apviz\.minimax\google-access"
 docker stop Google_Access; docker rm Google_Access
 docker run -d --name Google_Access --restart unless-stopped `
   -p 127.0.0.1:8766:8766 -e GA_PORT=8766 `
   -v "C:\Users\apviz\.minimax\google-access\data:/data" `
-  -v "E:\--- System Secrets:/secrets:ro" google-access:1.0.4
+  -v "E:\--- System Secrets:/secrets:ro" google-access:1.0.9
 ```
 
 The credential lives in the mounted volume, so recreating the container never
-loses the grant.
+loses the grant. The build context is the live source folder; `container/` in
+this repository is kept identical to it by `scripts/sync-container-source.py`
+(which also re-verifies that no credential path is ever tracked by git).
 
 ---
 

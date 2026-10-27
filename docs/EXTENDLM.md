@@ -100,12 +100,14 @@ formele măsurate ale răspunsurilor (`connections[].extension_connection`,
   selectat, tier `NOTEBOOKLM_TIER_PRO_CONSUMER_USER`. Portul 9412 (profilul
   local `minimax-notebooklm`) e închis și **irrelevant**: extensia din
   Chrome-ul obișnuit al utilizatorului e cea care contează.
-- **Real**: tokenul de acces expiră în ~3 h de la obținere. `data/extendlm.json`
-  conține și `refresh_token` + `token_endpoint`, dar reînnoirea automată **nu e
-  implementată** încă - la expirare, `notebooklm_ask` va începe să răspundă cu
-  `EXTENDLM_HTTP_401`. Reînnoirea e o singură funcție: `POST /token` cu
-  `grant_type=refresh_token`, pe `token_endpoint` + `client_id` care sunt deja
-  în fișier.
+- **Corectat 27 oct 2026, 13:30-13:43**: reînnoirea automată **există și e
+  măsurată**. `POST /token` cu `grant_type=refresh_token` rulează în container
+  (`extendlmAccessToken()`, cu deviere de 120 s) și în
+  `scripts/publish-extendlm-secret.mjs`. `data/extendlm.json` scade la
+  **1164 B**, `token_len=87`, `refresh_token` prezent, `expires_at` +5 h de la
+  ultima reînnoire. La expirare, `notebooklm_ask` **nu** răspunde 401: tokenul
+  e reînnoit înainte de expirare. Detalii: „Stare măsurată 27 oct 2026,
+  13:29-13:43" mai jos.
 - **Real**: `notebooklm_ask` ia primul notebook vizibil dacă nu i se dă
   `notebook_id`; răspunsul întoarce `notebook_title`, ca alegerea să fie
   vizibilă, nu implicită.
@@ -157,4 +159,68 @@ Proba: `notebook_title=JULES`, `answer_chars=8139`, `is_error=false`.
 **Sonda permanentă:** `scripts/probe-notebooklm.mjs` - numără uneltele, citește
 starea extensiei și a contului, tipărește *nume* de unelte (niciodată tokenul),
 și poate cere schema unei unelte (`--schema ask_notebook,list_notebooks`).
+
+## Stare măsurată 27 oct 2026, 13:29-13:43 - rotația, singurul proprietar, heartbeat
+
+**Endpoint-ul rotește refresh token-ul.** Măsurat: `rotated_refresh=true` la
+`POST /token` cu `grant_type=refresh_token`. Două instanțe care se reînnoiesc
+din aceeași copie se distrug: a doua rotație invalidează tokenul pe care prima
+l-a scris. Deci rotația are **un singur proprietar**, iar ceilalți consumă
+copii.
+
+| Rol | Instanță | Comportament |
+|---|---|---|
+| **proprietar** | hostul (`Google_Access` + `publish-extendlm-secret.mjs`) | rotește, persistă atomic (`tmp` + `rename`), publică snapshotul |
+| **consumator** | runnerul Cloud (`MAVIS-CLOUD`) | `GA_EXTENDLM_NO_REFRESH=1` - **nu** rotează, folosește snapshotul |
+
+Cu `GA_EXTENDLM_NO_REFRESH=1`, o instanță al cărei token a expirat **spune
+exact asta** (`EXTENDLM_TOKEN_EXPIRED_NO_REFRESH: … the owner instance has to
+publish a fresh snapshot`) în loc să se zbate cu o rotație care ar strica
+copia gazdei.
+
+### Rotația măsurată
+
+| Măsurătoare | Valoare |
+|---|---|
+| `REFRESH_HTTP` | 200 |
+| `TOKEN_LEN` | 87 |
+| `ROTATED_REFRESH` | **1** (deci persistența e obligatorie) |
+| `expires_in` | 17999 s |
+| fișier | `data/extendlm.json`, **1164 B**, `token_len=87`, `refresh_len=87` |
+| `TOOL_COUNT` după reînnoire | 160 |
+| verdict | `REFRESH_WORKS` |
+
+`refreshExtendlmToken()` scrie fișierul **atomic** (`tmp` + `rename`), iar
+`readExtendlmConfig()` citește de pe disc la fiecare apel - deci o instanță
+preia imediat tokenul scris de alta, fără restart.
+
+### Mecanismul permanent
+
+`scripts/publish-extendlm-secret.mjs` - rotește **doar când e nevoie** (token
+valid cu >60 min → nu rotește), publică snapshotul în secretul Cloud și
+**citește înapoi** timestamp-ul secretului (`SECRET_READBACK=present`,
+`age_seconds=14`): o scriere neconfirmată nu e o scriere.
+
+`scripts/extendlm-heartbeat.ps1` - rulează publicatorul, scrie **o linie datată**
+în `logs/extendlm-heartbeat-YYYY-MM-DD.log` (UTF-8 fără BOM) și propagă exit
+code-ul.
+
+Taskul Windows **`MavisExtendLMHeartbeat`** (repetiție 30 min) - măsurat
+declanșat de planificator: `LAST_RUN=13:43:14`, `LAST_RESULT=0`,
+`NEXT_RUN=14:13:14`, log +1 linie `EXIT=0`.
+
+Falsificare (poarta trebuie să poată eșua): repo inexistent → `EXIT=2`;
+director de date inexistent → `EXIT=3`.
+
+**Redacție:** logul nu primește niciodată tokenul. `gh` ecolează linia de
+comandă la eșec, iar linia conține `--body <snapshot>`; publicatorul redactă
+payload-ul (`[REDACTED_SNAPSHOT]`), iar wrapper-ul aplică o plasă suplimentară
+(`[A-Za-z0-9+/=]{80,}` → `[REDACTED_B64]`).
+
+### Cloud
+
+Run `40497337673` (concluzie **success**): `SOURCE_COMMIT=f589f82`,
+`EXTENDLM_FIELDS=…token_len=87…refresh=yes`, `SERVICE=notebooklm STATUS=OK`,
+`VERDICT=PASS`, `PROBE_EXIT=0`. Secretul Cloud: `GOOGLE_EXTENDLM_CREDENTIAL_B64`.
+
 

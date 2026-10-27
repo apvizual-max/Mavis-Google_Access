@@ -1,4 +1,4 @@
-﻿# 00_INDEX — 02_Areas/02-2-AI-SOT/CASA/OPTIMUS - Prime/Optimus_CI (by Mavis)/Google_Connect/Mavis-Cloud_Google-Setup-Session
+# 00_INDEX — 02_Areas/02-2-AI-SOT/CASA/OPTIMUS - Prime/Optimus_CI (by Mavis)/Google_Connect/Mavis-Cloud_Google-Setup-Session
 
 **1 fișiere · 50 KB · 1 subfoldere**
 

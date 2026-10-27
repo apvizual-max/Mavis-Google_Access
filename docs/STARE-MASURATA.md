@@ -281,3 +281,130 @@ poarta a raportat `PROBLEMS=2` (`NOT_IGNORED` + `TRACKED_SENSITIVE_PATH`) și a
 ieșit cu **2**; repo-ul real a rămas neatins. Pe repo-ul real:
 `TRACKED_CHECK_OK files=79 sensitive=0`, `PROBLEMS=0`.
 
+## 10. 27 oct 2026, 11:15-13:43 - imaginea reparată, Cloud verde, heartbeat
+
+### 10.1 DRIFT MĂSURAT: repo-ul era în urmă, imaginea era veche
+
+La începutul acestei etape, trei semnături diferite pentru `server.mjs`:
+
+| Artefact | SHA256 (normalizat CRLF→LF) | Byte |
+|---|---|---|
+| imaginea `google-access:1.0.8` (`/app/server.mjs`) | `3f2cd1b1f827786d…` | 57.278 |
+| sursa vie `~/.minimax/google-access/server.mjs` | `8429fa5129192899…` | 58.781 |
+| repo `container/server.mjs` (la HEAD `3492655`) | `c9605239322b420b…` | 49.576 |
+
+Cauza, măsurată: imaginea a fost construită la **11:15:03Z**, iar reparările
+(`credentialFingerprint`, `GA_EXTENDLM_NO_REFRESH`) au fost scrise în sursa vie
+la **11:20Z** - **după** build. Repo-ul nu fusese sincronizat. Deci containerul
+rula codul fără amprenta credentialului, exact defectul care producea 403 cu
+scope deja acordat.
+
+Reparația: `sync-container-source.py` (live → repo) → `COPIED server.mjs
+sha256=8429fa5129192899`, `PROBLEMS=0`, `TRACKED_CHECK_OK files=80 sensitive=0`;
+apoi `google-access:1.0.9` construit din aceeași sursă.
+
+Verificare a imaginii, **înainte** de a atinge containerul:
+`/app/server.mjs` = `8429fa5129192899…` (identic cu sursa vie), `grep -c
+GA_EXTENDLM_NO_REFRESH` = 3, `grep -c credentialFingerprint` = 3, `grep -c
+photospicker` = 10.
+
+Container recreat cu aceiași parametri (port `127.0.0.1:8766`, volum `data`
+rw, `E:\--- System Secrets:/secrets:ro`, `GA_PORT=8766`):
+`running|healthy`, `grant=live`, `reauth_required=false`, **32 unelte**,
+semnătura în container `8429fa5129192899…` - containerul rulează codul reparat.
+
+### 10.2 DEFECT MĂSURAT: cache-ul de token nu purta amprenta credentialului
+
+După lărgirea consimțământului, credentialul din volum e înlocuit, dar tokenul
+de acces rămă în cache - și aparținea grantului vechi. Containerul răspundea
+`403 insufficient authentication scopes` deși scope-ul era acordat și prezent în
+fișier. Reparație, la sursă: `credentialFingerprint(creds)` (lungimea +
+ultimele 12 caractere ale refresh token-ului + `provisioned_at`) intră în cache,
+iar `accessToken()` re-emite tokenul la schimbarea credentialului.
+
+Probă că defectul e reparat, prin container, nu prin host:
+`gphotos_picker_start` → `HTTP=200`, `session_id=c39d0b83-90b2-49a2-bc64-29dd63db92c0`,
+`picker_uri` obținută, `expire_time=2026-11-03T11:28:05Z`.
+
+### 10.3 Proba pe 16 servicii, după rebuild
+
+`TALLY OK=14 REFUSED=2 ERROR=0 SKIP=0`, `VERDICT=PASS`, `PROBE_EXIT=0`.
+Cele două refuzuri sunt ale Google, nu ale containerului: **keep** (403, scope
+inexistent) și **sites** (404, API retras). `notebooklm` = OK.
+
+### 10.4 REGESIE MĂSURATĂ: am publicat peste workflow-ul Cloud o copie mai veche
+
+Publicarea workflow-ului în MAVIS-CLOUD a pornit din copia locală din repo.
+Diff-ul măsurat contra **versiunii care trecuse** (blob `bbb3b162…`) a arătat că
+copia locală pierduse două lucruri: pasul „Diagnose the secret shape" și
+`sed '1s/^\xEF\xBB\xBF//'` înainte de `base64 -d`. Rezultatul, măsurat:
+run-ul `40496656800` → **failure**, `base64: invalid input`.
+
+Lecția: un workflow nu e un fișier de copiat în jur, e piesa care trebuie
+demonstrată. Repararea, la sursă: `scripts/rebuild-cloud-workflow.py` **compune**
+din versiunea care a trecut, adaugă pasul ExtendLM și `-e
+GA_EXTENDLM_NO_REFRESH=1`, apoi **verifică 9 proprietăți** înainte de a scrie
+(care ar fi inclus BOM-strip-ul pe ambele secrete, pasul de diagnostic, absența
+triggerului `pull_request` citită din structura YAML parseată, nu din text) →
+`PROBLEMS=0`.
+
+Publicat: blob `66bbff554dd0d436…` în Cloud = blob local (identic), commit
+`dc57899e`.
+
+### 10.5 Cloud: run-ul verde, măsurat în Cloud
+
+Run `40497337673` (push), concluzie **success**:
+
+| Măsurătoare | Valoare |
+|---|---|
+| `SOURCE_COMMIT` | `f589f823fc7b89fe…` (sursa publică de adevăr) |
+| `SECRET_LEN` / `SECRET_FOREIGN_CHARS` | 2596 / **0** (base64 curat, fără BOM) |
+| `CREDENTIAL_FIELDS` | `client_id,client_secret,refresh_token,scope,provisioned_at,sourcescope_chars=1533` |
+| `EXTENDLM_FIELDS` | `token_len=87`, `refresh=yes` |
+| `SERVICE=notebooklm` | **OK** (bytes=2119) |
+| bilanț | 14 OK / 2 REFUSED / 0 ERROR |
+| `VERDICT` / `PROBE_EXIT` | `PASS` / **0** |
+
+Secretul de credential Google a fost și re-publicat curat (base64 fără BOM,
+scris cu `--body` pe o singură linie) - sursa **și** receptorul sunt acum
+corecte: nu e suficient să cureți receptorul.
+
+### 10.6 Heartbeat-ul permanent (mecanismul de reînnoire + publicare)
+
+`scripts/publish-extendlm-secret.mjs` + `scripts/extendlm-heartbeat.ps1` +
+taskul Windows **`MavisExtendLMHeartbeat`** (repetiție la 30 min).
+
+Proprietatea măsurată a modelului: endpoint-ul **rotește** refresh token-ul
+(`ROTATED_REFRESH=1`), deci rotația e o operație cu un singur proprietar.
+Publicatorul rotește **doar când e nevoie** (token valid cu >60 min → nu
+rotește), ca să nu se lupte cu containerul, care rotește și el și își
+persistează rezultatul.
+
+| Măsurătoare | Valoare |
+|---|---|
+| rotație | `REFRESH_HTTP=200`, `ROTATED_REFRESH=1`, `TOKEN_LEN=87` |
+| publicare | `SECRET_WRITE=ok`, `SECRET_READBACK=present`, `age_seconds=14` |
+| declanșare proprie a taskului | `LAST_RUN=13:43:14`, `LAST_RESULT=0`, `NEXT_RUN=14:13:14` |
+| log | `C:\Users\apviz\.minimax\google-access\logs\extendlm-heartbeat-YYYY-MM-DD.log`, UTF-8 fără BOM |
+| falsificare (repo inexistent) | `EXIT=2` |
+| falsificare (director inexistent) | `EXIT=3` |
+
+### 10.7 DEFECT MĂSURAT: logul a primit credentialul, prin mesajul de eroare
+
+La falsificare, `gh` a eșuat și a **ecoulat linia de comandă**, care conține
+`--body <snapshot>` - snapshotul fiind chiar tokenul. Logul a primit credentialul.
+Reparație în două locuri: publicatorul redactă payload-ul înainte să-l
+tiprească (`[REDACTED_SNAPSHOT]`), iar wrapper-ul aplică o plasă de siguranță
+(`[A-Za-z0-9+/=]{80,}` → `[REDACTED_B64]`). Logul existent a fost rescris:
+`LONG_B64_BEFORE=1` → `AFTER=0`, iar falsificarea repetată a produs `EXIT=2`
+**fără** niciun șir lung în log.
+
+### 10.8 Starea la 13:43
+
+- Container `google-access:1.0.9`, `running|healthy`, `grant=live`, 32 unelte.
+- Grant: **33 scope-uri** (inclusiv `photospicker.mediaitems.readonly`).
+- ExtendLM: token proaspăt, rotație automată, snapshot publicat în secretul Cloud.
+- Cloud: run `40497337673` verde, `notebooklm` OK măsurat în Cloud.
+- Repo: `main` = `origin/main`, divergență 0/0.
+
+

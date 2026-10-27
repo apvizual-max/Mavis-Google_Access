@@ -17,7 +17,9 @@ O autentificare Google nu este un lucru permanent prin nature. Ea este un
 ## Cum stai acum
 
 - Statut: **In production** (publicat 27 oct 2026, 08:50 UTC).
-- Grant: 30 scope-uri, token de refresh în volum, emis după publicare.
+- Grant: **33 scope-uri** (era 30 la redactarea primei versiuni a acestui
+  document; 32 după consimțământul #3, 33 după scope-ul Photo Picker), token de
+  refresh în volum, emis după publicare.
 - Consumul tokenului: `mintAccessToken()` citește credentialul **la fiecare
   apel** (`readCreds()` per request) → un credential nou e preluat fără
   restart, dar restartul e oricum sigur și e făcut automat de ascultător.
@@ -65,3 +67,35 @@ comandă de rulat de către utilizator.
 - Dacă Google revizuiește sau retrage aplicația, se re-cere un click. Nu
   există nicio modalitate de a evita asta fără a falsifica identitatea
   utilizatorului.
+
+## NotebookLM / ExtendLM - a doua expirare, rezolvată altfel
+
+Grantul Google nu e singura expunere. Tokenul ExtendLM (NotebookLM prin MCP)
+expiră în **ore**, nu în luni, iar endpoint-ul **rotește** refresh token-ul.
+
+Cum e rezolvat, măsurat (27 oct 2026):
+
+| Piesa | Mecanism |
+|---|---|
+| rotația | `extendlmAccessToken()` în container: reînnoire cu deviere de 120 s, scriere atomică |
+| unicitatea rotației | un singur proprietar (hostul). Runnerul Cloud are `GA_EXTENDLM_NO_REFRESH=1` și doar consumă snapshotul |
+| transportul spre Cloud | `scripts/publish-extendlm-secret.mjs` publică snapshotul în secretul `GOOGLE_EXTENDLM_CREDENTIAL_B64` și **citește înapoi** timestamp-ul |
+| continuitatea | taskul Windows `MavisExtendLMHeartbeat` (30 min) - măsurat declanșat: `LAST_RESULT=0` |
+| vizibilitatea | `logs/extendlm-heartbeat-YYYY-MM-DD.log`, o linie datată per rulare, tokenul **redactat** |
+
+Cloudul rulează zilnic (`cron 17 6 * * *`) sau la cerere, construiește imaginea
+din sursa publică și probează API-urile reale: run `40497337673` → `success`,
+`notebooklm` **OK**, `PROBE_EXIT=0`.
+
+## Cloud - ce rulează și cine îl rulează
+
+`MAVIS-CLOUD/.github/workflows/google-access.yml`: clonează sursa publică,
+materializează credentialul din secret, construiește imaginea, pornește
+containerul și **probează API-urile reale** (nu verifică o listă de scope-uri).
+
+De ce nu rulează pe `pull_request`: un secret nu trebuie să fie accesibil dintr-o
+pull request. De ce workflow-ul e **compus**, nu copiat: `scripts/rebuild-cloud-workflow.py`
+pornește de la versiunea demonstrată funcțional și verifică proprietățile
+(BOM-strip, pas de diagnostic, absența triggerului `pull_request`) înainte de
+a scrie - o copie „mai nouă" înseamnă aici „mai veche" decât istoricul ei.
+

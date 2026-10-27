@@ -7,14 +7,16 @@
 // runner) only ever consumes a snapshot, with GA_EXTENDLM_NO_REFRESH=1.
 //
 // This script is that owner. It:
-//   1. refreshes the token against the real endpoint and persists the result
-//      (a rotated refresh token MUST be written, or the next refresh fails),
+//   1. rotates the token ONLY when the current one is close to expiry, so it
+//      does not fight the container for the same refresh token (the container
+//      also refreshes, and it persists what it gets),
 //   2. publishes the fresh snapshot to the Cloud as a repository secret,
 //   3. verifies the secret was actually written by reading its timestamp back.
 //
 // It never prints a token. It prints lengths, labels and HTTP statuses only.
 //
 // Usage: node publish-extendlm-secret.mjs [--data <dir>] [--repo <owner/name>]
+//                                              [--min-valid-minutes <n>]
 //                                              [--skip-refresh] [--dry-run]
 import fs from "node:fs";
 import path from "node:path";
@@ -30,6 +32,7 @@ const DATA_DIR = argOf("--data", "C:/Users/apviz/.minimax/google-access/data");
 const REPO = argOf("--repo", "apvizual-max/MAVIS-CLOUD");
 const SECRET_NAME = "GOOGLE_EXTENDLM_CREDENTIAL_B64";
 const CFG = path.join(DATA_DIR, "extendlm.json");
+const MIN_VALID_MINUTES = Number(argOf("--min-valid-minutes", "60"));
 
 function ghBin() {
   const candidates = [
@@ -50,6 +53,25 @@ function ghBin() {
 
 function gh(args, opts) {
   return execFileSync(ghBin(), args, Object.assign({ encoding: "utf8", windowsHide: true }, opts || {}));
+}
+
+function readCfg() {
+  try {
+    return JSON.parse(fs.readFileSync(CFG, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+function persist(next) {
+  const tmp = CFG + ".tmp";
+  fs.writeFileSync(tmp, JSON.stringify(next, null, 2), "utf8");
+  fs.renameSync(tmp, CFG);
+}
+
+function minutesLeft(cfg) {
+  if (!cfg || !cfg.expires_at) return null;
+  return (Number(cfg.expires_at) - Date.now()) / 60000;
 }
 
 async function refresh(cfg) {
@@ -81,9 +103,7 @@ async function refresh(cfg) {
     expires_at: j.expires_in ? now + Number(j.expires_in) * 1000 : null,
     refreshed_at: new Date(now).toISOString(),
   };
-  const tmp = CFG + ".tmp";
-  fs.writeFileSync(tmp, JSON.stringify(next, null, 2), "utf8");
-  fs.renameSync(tmp, CFG);
+  persist(next);
   console.log(
     "TOKEN_LEN=" + (next.token ? next.token.length : 0) +
       " ROTATED_REFRESH=" + (rotated ? 1 : 0) +
@@ -98,24 +118,47 @@ async function refresh(cfg) {
     process.exitCode = 3;
     return;
   }
-  let cfg = JSON.parse(fs.readFileSync(CFG, "utf8"));
-  console.log("BEFORE token_len=" + (cfg.token ? cfg.token.length : 0) + " refresh_len=" + (cfg.refresh_token ? cfg.refresh_token.length : 0));
+  let cfg = readCfg();
+  console.log(
+    "BEFORE token_len=" + (cfg && cfg.token ? cfg.token.length : 0) +
+      " refresh_len=" + (cfg && cfg.refresh_token ? cfg.refresh_token.length : 0) +
+      " minutes_left=" + (minutesLeft(cfg) === null ? "unknown" : Math.round(minutesLeft(cfg)))
+  );
 
-  if (!hasFlag("--skip-refresh")) {
-    if (!cfg.refresh_token) {
+  if (hasFlag("--skip-refresh")) {
+    console.log("REFRESH=skipped");
+  } else {
+    const left = minutesLeft(cfg);
+    // Rotate only when it is needed. Rotating on every pass would fight the
+    // container over the same refresh token for no benefit: both persist what
+    // they get, so the file always holds a valid one, but the churn is free
+    // risk and free rotation.
+    if (left !== null && left > MIN_VALID_MINUTES) {
+      console.log("REFRESH=skipped token_valid_for=" + Math.round(left) + "min threshold=" + MIN_VALID_MINUTES + "min");
+    } else if (!cfg.refresh_token) {
       console.log("NO_REFRESH_TOKEN: re-authorize with extendlm-provision.mjs");
       process.exitCode = 3;
       return;
+    } else {
+      const next = await refresh(cfg);
+      if (next) {
+        cfg = next;
+      } else {
+        // The container may have rotated the token between our read and our
+        // refresh. Re-read the file: if it now holds a usable token, publish
+        // THAT. A failed rotation is not a reason to publish a dead snapshot.
+        const fresh = readCfg();
+        const freshLeft = minutesLeft(fresh);
+        if (fresh && freshLeft !== null && freshLeft > 0) {
+          console.log("RECOVERED_FROM_FILE minutes_left=" + Math.round(freshLeft));
+          cfg = fresh;
+        } else {
+          console.log("VERDICT=REFRESH_FAILED");
+          process.exitCode = 2;
+          return;
+        }
+      }
     }
-    const next = await refresh(cfg);
-    if (!next) {
-      console.log("VERDICT=REFRESH_FAILED");
-      process.exitCode = 2;
-      return;
-    }
-    cfg = next;
-  } else {
-    console.log("REFRESH=skipped");
   }
 
   const bytes = fs.readFileSync(CFG);
@@ -132,7 +175,14 @@ async function refresh(cfg) {
     gh(["secret", "set", SECRET_NAME, "--repo", REPO, "--body", b64]);
     console.log("SECRET_WRITE=ok name=" + SECRET_NAME + " repo=" + REPO);
   } catch (e) {
-    console.log("SECRET_WRITE=error " + (e && e.message ? String(e.message).split("\n")[0] : String(e)));
+    // MEASURED 2026-10-27: gh echoes the failing command line, and the command
+    // line carries --body <the snapshot>. The snapshot contains the access
+    // token and the refresh token, so the raw message would write a live
+    // credential into a log file. The payload is redacted before it is
+    // printed; the failure itself is reported.
+    const raw = e && e.message ? String(e.message) : String(e);
+    const safe = raw.split(b64).join("[REDACTED_SNAPSHOT]");
+    console.log("SECRET_WRITE=error " + safe.split("\n")[0]);
     console.log("VERDICT=SECRET_WRITE_FAILED");
     process.exitCode = 2;
     return;
