@@ -1,0 +1,73 @@
+# TINERE API GOOGLE - gazde, drumuri, scope-uri
+
+Tot ce e mai jos e luat din **discovery documents** (nu din memorie), pe 27
+oct 2026. Metoda: `https://<gazda>/$discovery/rest?version=<v>`.
+
+## Gazde (măsurat: `www.googleapis.com` nu ajunge la toate)
+
+| API | Gazdă | Bază |
+|---|---|---|
+| Drive | `https://www.googleapis.com` | `/drive/v3` |
+| Gmail | `https://gmail.googleapis.com` | `/gmail/v1` |
+| Calendar | `https://www.googleapis.com` | `/calendar/v3` |
+| Books | `https://www.googleapis.com` | `/books/v1` |
+| Docs | `https://docs.googleapis.com` | `/v1/documents` |
+| Sheets | `https://sheets.googleapis.com` | `/v4/spreadsheets` |
+| Slides | `https://slides.googleapis.com` | `/v1/presentations` |
+| Forms | `https://forms.googleapis.com` | `/v1/forms` |
+| Photos Library | `https://photoslibrary.googleapis.com` | `/v1/mediaItems` |
+| Tasks | `https://tasks.googleapis.com` | `/tasks/v1` |
+| Apps Script | `https://script.googleapis.com` | `/v1/projects` |
+| Chat | `https://chat.googleapis.com` | `/v1/spaces` |
+| YouTube | `https://youtube.googleapis.com` | `/youtube/v3` |
+| People (Contacts) | `https://people.googleapis.com` | `/v1/people/me/connections` |
+| Keep | `https://keep.googleapis.com` | `/v1/notes` |
+| Sites | `https://sites.googleapis.com` | `/v1/sites` (API retras) |
+
+## Drumuri reale ale metodelor care le folosim
+
+| Metodă | Drum | Note |
+|---|---|---|
+| `drive.files.list` | `GET /drive/v3/files` | `q`, `fields`, `pageSize` |
+| `drive.files.create` | `POST /drive/v3/files` | multipart pentru conținut |
+| `drive.files.export` | `GET /drive/v3/files/{id}/export?mimeType=…` | Docs → text, Sheets → csv |
+| `gmail.users.messages.list` | `GET /gmail/v1/users/me/messages` | |
+| `gmail.users.messages.get` | `GET /gmail/v1/users/me/messages/{id}?format=full` | |
+| `calendar.events.list` | `GET /calendar/v3/calendars/primary/events` | |
+| `documents.get` | `GET /v1/documents/{documentId}` | |
+| `documents.batchUpdate` | `POST /v1/documents/{id}:batchUpdate` | |
+| `spreadsheets.values.get` | `GET /v4/spreadsheets/{id}/values/{range}` | |
+| `photoslibrary.mediaItems.list` | `GET /v1/mediaItems?pageSize=…` | **`/v1/photos` nu există** |
+| `photoslibrary.albums.list` | `GET /v1/albums` | |
+| `tasks.tasklists.list` | `GET /tasks/v1/users/@me/lists` | |
+| `chat.spaces.list` | `GET /v1/spaces` | cere `chat.spaces.readonly` |
+| `youtube.channels.list` | `GET /youtube/v3/channels?part=…&mine=true` | `channels/mine` nu e listat în discovery |
+| `people.connections.list` | `GET /v1/people/me/connections?personFields=…` | |
+| `script.projects.*` | `GET /v1/projects/{scriptId}` | **nu există `projects.list`** → listarea se face prin Drive (mimeType `application/vnd.google-apps.script`) |
+
+## Scope-uri pentru care API-ul chiar cere altceva
+
+| Metodă | Scope-uri acceptate (din discovery) |
+|---|---|
+| `photoslibrary.mediaItems.list` | `photoslibrary`, `photoslibrary.readonly`, `photoslibrary.readonly.appcreateddata` |
+| `chat.spaces.list` | `chat.bot`, `chat.spaces`, `chat.spaces.readonly` |
+
+## Scope-uri inexistente (nu se pot cere)
+
+| Scope | De ce |
+|---|---|
+| `https://www.googleapis.com/auth/sites` | API-ul Google Sites a fost retras; scope-ul a ieșit din registrul Google (consola: „not added because they are invalid") |
+| `https://www.googleapis.com/auth/keep` | Keep API există (Developer Preview, doar admini de workspace), dar scope-ul nu e în registrul public de scope-uri Google → invalid la cerere |
+
+## API-uri activate în proiect (27 oct 2026)
+
+`drive`, `gmail`, `calendar`, `docs`, `sheets`, `slides`, `forms`,
+`photoslibrary`, `tasks`, `script`, `youtube`, `keep`, `people`, `contacts`,
+`books` (activat de mine), `chat` (activat de mine). **`sites.googleapis.com`
+nu există ca serviciu** - nu poate fi activat.
+
+## Regula
+
+Înainte de a folosi o metodă de API: verific-o în discovery document. Un drum
+ghicit înseamnă un 404 măsurat - și un 404 care arată la fel ca o lipsă de
+scope.
