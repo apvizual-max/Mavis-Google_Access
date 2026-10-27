@@ -97,9 +97,9 @@ all media items **created by your app**", `albums.list` = „Lists all albums
 |---|---|
 | `photoslibrary` | acordat, dar **nu mai deschide** biblioteca utilizatorului |
 | `photoslibrary.readonly` | acordat, dar **nu mai deschide** biblioteca utilizatorului |
-| `photoslibrary.appendonly` | **activ**: creează album și încarcă media în biblioteca reală |
-| `photoslibrary.readonly.appcreateddata` | cerut - citire doar a conținutului creat de aplicație |
-| `photoslibrary.edit.appcreateddata` | cerut - editare conținut creat de aplicație |
+| `photoslibrary.appendonly` | **activ și dovedit**: creează album și încarcă media în biblioteca reală (probă fără creare: `POST /v1/albums` cu corp gol -> 400 „Request must have a title for the album.", deci autorizarea a trecut) |
+| `photoslibrary.readonly.appcreateddata` | **acordat** la 12:06 (consimțământul #3) - citire doar a conținutului creat de aplicație |
+| `photoslibrary.edit.appcreateddata` | **acordat** la 12:06 (consimțământul #3) - editare conținut creat de aplicație |
 | `photospicker.mediaitems.readonly` | **nefolosit**: `sessions.create` cere un `pollingUri` public, la care Google trebuie să ajungă |
 
 Regula rămâne: înainte de a folosi o metodă de API - verific-o în discovery

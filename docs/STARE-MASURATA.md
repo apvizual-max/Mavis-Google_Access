@@ -155,3 +155,36 @@ corecția BOM (`sed '1s/^\xEF\xBB\xBF//' | tr -d '\r\n'`) a rezolvat
 
 ### 7.5 Ascultătoare: 90/60 min -> **180 min**
 Un răspuns uman nu trebuie să se piardă într-un timeout.
+
+## 8. 27 oct 2026, 12:06-12:15 - consimțământul #3 și starea finală măsurată
+
+### 8.1 Grant de 32 scope-uri
+`CODE_RECEIVED=1` (12:06:54) -> `PROVISION_EXIT=0` -> `SCOPES=32` ->
+`RESTART_EXIT=0` -> `PROBE_EXIT=0` -> `VERDICT=PASS`. Tokenul duce acum și
+`photoslibrary.readonly.appcreateddata` + `photoslibrary.edit.appcreateddata`.
+
+### 8.2 Proba pe 16 servicii - 13 OK
+`identity`, `drive`, `gmail`, `calendar`, **`photos`**, `books`, `tasks`,
+`apps-script`, `chat`, `contacts`, `youtube`, `docs`, `sheets` -> STATUS=OK cu
+date reale. REFUSED, fiecare cu cauza măsurată:
+- **keep** - 403: scope-ul nu există în registrul public de scope-uri Google
+- **sites** - 404: API-ul a fost retras de Google
+- **notebooklm** - `NO_EXTENDLM_TOKEN`: așteaptă autentificarea lui Popy pe
+  extendlm.com
+
+### 8.3 Photos: calea de scriere, probată fără să creeze nimic
+API-ul Photos Library **nu are** `albums.delete` - un album creat se poate doar
+redenumi sau depublicat. Un album de test ar fi fost gunoi permanent în
+biblioteca lui Popy. Așadar proba s-a făcut cu un corp gol:
+`POST /v1/albums` cu `{}` -> **400 „Request must have a title for the album."**
+Dacă scope-ul ar fi lipsit, răspunsul ar fi fost 403. Deci 400 înseamnă că
+autorizarea a trecut - și **nu s-a creat niciun album**.
+`mediaItems.list` 200, `albums.list` 200, Drive 200 (control), `VERDICT=PASS`.
+
+### 8.4 NotebookLM: nu există API public
+Confirmat din două surse independente: directorul oficial Google
+(`https://www.googleapis.com/discovery/v1/apis`) nu are nicio API `notebooklm`
+- doar `notebooks` (Vertex AI) - iar `gcloud services list --available` nu
+listează niciun serviciu NotebookLM. Deci ExtendLM e singurul drum prin MCP,
+și e legat corect: client dinamic, PKCE S256, ascultător pe `127.0.0.1:8799`
+cu fereastră de 180 de minute.

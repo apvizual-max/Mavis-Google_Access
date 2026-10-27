@@ -77,6 +77,26 @@ async function call(label, url, token) {
   const mediaItems = await call("mediaItems.list", HOST + "/v1/mediaItems?pageSize=1", t.token);
   const albums = await call("albums.list", HOST + "/v1/albums?pageSize=1", t.token);
 
+  // The write path, proven WITHOUT creating anything.
+  //
+  // The Photos Library API has NO albums.delete - a created album can only be
+  // renamed or unshared. So a test album would be permanent litter in the
+  // user's library. Instead: POST /v1/albums with an EMPTY body.
+  //   - scope missing  -> 403 insufficient authentication scopes
+  //   - scope granted  -> 400 invalid argument (album.title is required)
+  // A 400 therefore PROVES the authorization passed, and creates nothing.
+  const wr = await fetch(HOST + "/v1/albums", {
+    method: "POST",
+    headers: { Authorization: "Bearer " + t.token, "Content-Type": "application/json" },
+    body: JSON.stringify({}),
+  });
+  const wrBody = await wr.text();
+  console.log("---- albums.create (empty body - authorization probe, creates nothing)");
+  console.log("HTTP=" + wr.status);
+  console.log("BODY=" + wrBody.slice(0, 300));
+  const writeAuthorized = wr.status === 400; // 403 would mean the scope is not effective
+  console.log("WRITE_PATH_AUTHORIZED=" + writeAuthorized + " (400 = scope accepted, no album created)");
+
   // A control: the same token against an API whose scope we hold.
   const drive = await call(
     "drive.files.list (control)",
@@ -85,6 +105,7 @@ async function call(label, url, token) {
   );
 
   console.log("MEDIAITEMS_HTTP=" + mediaItems + " ALBUMS_HTTP=" + albums + " DRIVE_CONTROL_HTTP=" + drive);
+  console.log("VERDICT=" + (mediaItems === 200 && albums === 200 && drive === 200 && writeAuthorized ? "PASS" : "CHECK"));
   process.exit(0);
 })().catch((e) => {
   console.log("ERROR=" + (e && e.message ? e.message : String(e)));
