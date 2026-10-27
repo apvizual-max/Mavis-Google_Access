@@ -1,0 +1,7 @@
+# The credential never enters this repository.
+data/
+logs/
+state/
+*.tmp
+*.log
+__pycache__/
