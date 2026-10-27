@@ -39,12 +39,26 @@ jobs:
           git clone --depth 1 https://github.com/apvizual-max/Mavis-Google_Access.git _src
           echo "SOURCE_COMMIT=$(git -C _src rev-parse HEAD)"
 
+      - name: Diagnose the secret shape (counts only, never the value)
+        env:
+          S: ${{ secrets.GOOGLE_ACCESS_CREDENTIAL_B64 }}
+        run: |
+          echo "SECRET_LEN=${#S}"
+          echo "SECRET_FOREIGN_CHARS=$(printf '%s' "$S" | tr -d 'A-Za-z0-9+/=' | wc -c)"
+          echo "SECRET_FOREIGN_HEX=$(printf '%s' "$S" | tr -d 'A-Za-z0-9+/=' | od -An -t x1 | tr -s ' ' | tr -d '\n')"
+          echo "SECRET_PADDING=$(printf '%s' "$S" | tr -cd '=' | wc -c)"
+          echo "SECRET_EQ_POS=$(printf '%s' "$S" | awk '{print index($0,"=")}')"
+          echo "SECRET_LEN_MOD4=$(( ${#S} % 4 ))"
+          echo "SECRET_VALID_B64_CHARS=$(printf '%s' "$S" | tr -dc 'A-Za-z0-9+/=' | wc -c)"
+
       - name: Materialize the credential from the secret
         env:
           GOOGLE_ACCESS_CREDENTIAL_B64: ${{ secrets.GOOGLE_ACCESS_CREDENTIAL_B64 }}
         run: |
           mkdir -p _src/data
-          printf '%s' "$GOOGLE_ACCESS_CREDENTIAL_B64" | tr -d '\r\n' | base64 -d > _src/data/credentials.json
+          # A UTF-8 BOM (ef bb bf) written in front of the value breaks the
+          # decoder; measured, not guessed. Strip it, then the newlines.
+          printf '%s' "$GOOGLE_ACCESS_CREDENTIAL_B64" | sed '1s/^\xEF\xBB\xBF//' | tr -d '\r\n' | base64 -d > _src/data/credentials.json
           if [ ! -s _src/data/credentials.json ]; then
             echo "FATAL=credential secret missing or empty"
             exit 1
@@ -62,6 +76,8 @@ jobs:
             echo "EXTENDLM_SECRET=absent (notebooklm stays REFUSED)"
             exit 0
           fi
+          # Same BOM guard as the Google credential: the decoder dies on a
+          # leading ef bb bf, so the value is stripped before it is decoded.
           printf '%s' "$GOOGLE_EXTENDLM_CREDENTIAL_B64" | sed '1s/^\xEF\xBB\xBF//' | tr -d '\r\n' | base64 -d > _src/data/extendlm.json
           if [ ! -s _src/data/extendlm.json ]; then
             echo "FATAL=extendlm secret missing or empty"
