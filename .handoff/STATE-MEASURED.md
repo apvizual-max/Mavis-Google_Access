@@ -1,6 +1,6 @@
 # STATE MEASURED — Google Access
 
-**Măsurat:** 2026-10-28, între 00:03Z și 00:40Z (UTC+2).
+**Măsurat:** 2026-10-28, între 00:03Z și 00:48Z (UTC+2).
 **Cifrele au o dată.** Ele se re-verifică cu comanda din dreapta; dacă o
 cifră nu mai corespunde, cifra e cea greșită, nu realitatea.
 
@@ -13,12 +13,13 @@ node "C:\Users\apviz\.minimax-agent\projects\Mavis-Google_Access\scripts\ga-doct
 ```
 
 ```
+host=OPTIMUS_PRIME at=2026-10-28T00:48:27.315Z
 CHECK C1.container    OK   status=running health=healthy image=google-access:1.0.9 restart=unless-stopped
 CHECK C1b.running-code OK   repo=8429fa512919 running=8429fa512919 match=true
 CHECK C2.health       OK   grant=live reauth=false tools=32
 CHECK C3.services     OK   OK=14 REFUSED=2[keep,sites] ERROR=0[]
-CHECK C4.extendlm     OK   token_minutes_left=220 refresh_token=yes cloud_secret_age_min=21
-CHECK C5.browser-mcp  OK   server=minimax-notebooklm tools=4
+CHECK C4.extendlm     OK   token_minutes_left=174 refresh_token=yes cloud_secret_age_min=6
+CHECK C5.browser-mcp  OK   server=minimax-notebooklm tools=4 path=C:\Users\apviz\.minimax-agent\projects\Mavis-Google_Access\google-layer\minimax-notebooklm.js
 CHECK C6.mcp-registry OK   enabled=true url=http://127.0.0.1:8766/mcp type=streamable-http
 CHECK C10.mcp-paths   OK   checked=23 dead_total=0
 CHECK C7.tasks        OK   count=4
@@ -72,13 +73,18 @@ Refuzurile, cu răspunsul măsurat:
 
 ## 4. Taskurile programate
 
-| Task | Cadență | Ultimul rezultat | Următorul |
-|---|---|---|---|
-| `Google_Access_Watch` | oră | **0** | 02:47 |
-| `Google_Access_Consent` | 5 min | **0** | 02:37 |
-| `Google_Access_Doctor` | 30 min | **0** | 03:03 |
-| `MavisExtendLMHeartbeat` | 30 min | **0** | 02:43 |
-| `MavisPickerHeartbeat` | 15 min | **0** | 02:48 |
+Măsurat la 2026-10-28 02:48 (local). „Următorul" se recalculează la fiecare
+cadență; „ultimul rezultat" e cel măsurat.
+
+| Task | Cadență | Ultimul rezultat | Ultima rulare | Următorul (la măsurare) |
+|---|---|---|---|---|
+| `Google_Access_Watch` | oră | **0** | 02:47 | 03:47 |
+| `Google_Access_Consent` | 5 min | **0** | 02:47 | 02:52 |
+| `Google_Access_Doctor` | 30 min | **0** | 02:33 | 03:03 |
+| `MavisExtendLMHeartbeat` | 30 min | **0** | 02:43 | 03:13 |
+| `MavisPickerHeartbeat` | 15 min | **0** | 02:48 | 03:03 |
+
+Toate cinci: `lastResult=0`, stare `Ready`.
 
 ---
 
@@ -102,9 +108,9 @@ Refuzurile, cu răspunsul măsurat:
 
 | | Valoare |
 |---|---|
-| Token ExtendLM | viu, **186 minute** rămase la ultima măsurătoare |
+| Token ExtendLM | viu, **174 minute** rămase la ultima măsurătoare |
 | Refresh token | prezent, lungime **87** |
-| Secret Cloud | `GOOGLE_EXTENDLM_CREDENTIAL_B64`, vârstă **24 minute** |
+| Secret Cloud | `GOOGLE_EXTENDLM_CREDENTIAL_B64`, vârstă **6 minute** |
 | Notebookuri | JULES 182 surse · GEMINI & AI Studio 251 · CV-Automation 98 · SENTINEL Role 225 · AGENTS 8 · TRADE 1 · CV-Notebook 99 · CLIENTS 2 · OPTIMUS System 5 |
 | Browser | profil propriu `%LOCALAPPDATA%\minimax-notebooklm\chrome_profile`, CDP **9412** |
 
@@ -125,11 +131,15 @@ Refuzurile, cu răspunsul măsurat:
 
 | Repo | HEAD | origin/main | Divergență | Arbore |
 |---|---|---|---|---|
-| `Mavis-Google_Access` | `83f874a` | `83f874a` | 0 / 0 | curat |
+| `Mavis-Google_Access` | `3c97e18` | `3c97e18` | 0 / 0 | curat |
 | `OPTIMUS-Backbone` | `267ef3c` | `267ef3c` | 0 / 0 | curat (3 foldere de scratch ale altui agent, neatinse) |
 
-Scanări: secrete pe diff indexat `BLOCKS=0 WARNS=0` · encoding `FILES_CHECKED=99
-PROBLEMS=0`, zero BOM.
+Folderul `.handoff\` este **versionat în acest commit** (`3c97e18`) și împins pe
+GitHub: predarea se face prin `git pull`, nu prin copierea unui folder local.
+Verificat cu `git ls-remote origin refs/heads/main` → `3c97e18…`, divergență 0/0.
+
+Scanări: secrete pe diff indexat `SCANNED=883 BLOCKS=0 WARNS=0` · encoding
+`FILES_CHECKED=105 PROBLEMS=0`, zero BOM.
 
 ---
 
@@ -140,7 +150,7 @@ PROBLEMS=0`, zero BOM.
 | Bot | `skills\mavis-google-access-bot\` |
 | Membri | **8** (6 funcționali + 1 meta + registrul) |
 | Referințe | **25** |
-| Registrul | `bot-registry.mjs verify` → `VERDICT=PASS` |
+| Registrul | `bot-registry.mjs verify` → `VERDICT=PASS` (34 skills checked) |
 | Verificatoare ale membrilor | **8**, toate `VERDICT=PASS` |
 
 ---

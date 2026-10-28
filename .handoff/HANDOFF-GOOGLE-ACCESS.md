@@ -31,14 +31,14 @@ node "C:\Users\apviz\.minimax-agent\projects\Mavis-Google_Access\scripts\ga-doct
 
 ---
 
-## 2. Starea măsurată (2026-10-28, 00:03Z)
+## 2. Starea măsurată (2026-10-28, 00:48Z)
 
 ```
 CHECK C1.container    OK   running / healthy / google-access:1.0.9 / unless-stopped
 CHECK C1b.running-code OK  repo=8429fa512919 running=8429fa512919 match=true
 CHECK C2.health       OK   grant=live reauth=false tools=32
 CHECK C3.services     OK   OK=14 REFUSED=2[keep,sites] ERROR=0
-CHECK C4.extendlm     OK   token_minutes_left=220 refresh_token=yes
+CHECK C4.extendlm     OK   token_minutes_left=174 refresh_token=yes cloud_secret_age_min=6
 CHECK C5.browser-mcp  OK   server=minimax-notebooklm tools=4
 CHECK C6.mcp-registry OK   enabled=true url=http://127.0.0.1:8766/mcp
 CHECK C10.mcp-paths   OK   checked=23 dead_total=0
@@ -56,10 +56,10 @@ VERDICT=PASS
 | Unelte | **32** |
 | Servicii | **14 OK · 2 REFUSED (keep, sites) · 0 ERROR** |
 | Taskuri | `Google_Access_Watch` (oră) · `Google_Access_Consent` (5 min) · `Google_Access_Doctor` (30 min) · `MavisExtendLMHeartbeat` (30 min) · `MavisPickerHeartbeat` (15 min) — **toate cu `lastResult=0`** |
-| Repo Google Access | `Mavis-Google_Access` `83f874a` = `origin/main`, divergență 0/0, arbore curat |
+| Repo Google Access | `Mavis-Google_Access` `3c97e18` = `origin/main`, divergență 0/0, arbore curat — **`.handoff\` este versionat aici** |
 | Repo backbone | `OPTIMUS-Backbone` `267ef3c` = `origin/main`, divergență 0/0 |
-| Secrete | scanare pe diff indexat: `BLOCKS=0 WARNS=0` |
-| Encoding | 99 fișiere, `PROBLEMS=0`, zero BOM |
+| Secrete | scanare pe diff indexat: `SCANNED=883 BLOCKS=0 WARNS=0` |
+| Encoding | 105 fișiere, `PROBLEMS=0`, zero BOM |
 
 Detaliul complet, cu fiecare măsurătoare: `STATE-MEASURED.md`.
 

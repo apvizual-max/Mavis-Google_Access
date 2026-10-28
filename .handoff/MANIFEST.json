@@ -3,7 +3,7 @@
   "kind": "handoff",
   "subject": "Google Access — permanent Google connection on this station",
   "created_at": "2026-10-28",
-  "measured_at": "2026-10-28T00:03Z .. 2026-10-28T00:40Z",
+  "measured_at": "2026-10-28T00:03Z .. 2026-10-28T00:48Z",
   "for": "a session with zero context and zero memory",
   "entry_point": "PRIMING-PROMPT.md",
   "root": "C:\\Users\\apviz\\.minimax-agent\\projects\\Mavis-Google_Access\\.handoff",
@@ -84,10 +84,10 @@
       }
     },
     "extendlm": {
-      "token_minutes_left": 186,
+      "token_minutes_left": 174,
       "refresh_token_present": true,
       "refresh_token_length": 87,
-      "cloud_secret_age_minutes": 24,
+      "cloud_secret_age_minutes": 6,
       "notebooks": {
         "JULES": 182,
         "GEMINI & AI Studio": 251,
@@ -115,12 +115,19 @@
       "MavisPickerHeartbeat": 0
     },
     "repos": {
-      "Mavis-Google_Access": { "head": "83f874a", "origin": "83f874a", "divergence": "0/0", "clean": true },
+      "Mavis-Google_Access": { "head": "3c97e18", "origin": "3c97e18", "divergence": "0/0", "clean": true },
       "OPTIMUS-Backbone": { "head": "267ef3c", "origin": "267ef3c", "divergence": "0/0", "clean": true }
     },
+    "handoff_commit": {
+      "sha": "3c97e18",
+      "branch": "main",
+      "pushed": true,
+      "verified_by": "git ls-remote origin refs/heads/main",
+      "note": "the .handoff folder is versioned - the transfer is a git pull, not a file copy"
+    },
     "gates": {
-      "secret_scan": { "scanned_lines": 1812, "blocks": 0, "warns": 0 },
-      "encoding": { "files_checked": 99, "problems": 0, "bom": 0 }
+      "secret_scan": { "scanned_lines": 883, "blocks": 0, "warns": 0, "scope": "staged diff of the handoff commit" },
+      "encoding": { "files_checked": 105, "problems": 0, "bom": 0 }
     }
   },
   "bot": {
