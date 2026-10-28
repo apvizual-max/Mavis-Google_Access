@@ -22,7 +22,7 @@
     },
     {
       "name": "SKILLS-INDEX.md",
-      "purpose": "every skill that matters, indexed and linked: 8 members + 25 references + the pattern skills"
+      "purpose": "every skill that matters, indexed and linked: 8 members + 27 references + the pattern skills"
     },
     {
       "name": "STATE-MEASURED.md",
@@ -144,7 +144,7 @@
       "mavis-skill-google-keep-sites",
       "mavis-skill-access-handoff"
     ],
-    "references": 25,
+    "references": 27,
     "pattern_followed": "mavis-session-extract-bot-skill",
     "naming": "mavis-skill-<capability> (specified by Popy, 2026-10-28)"
   },

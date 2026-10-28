@@ -151,7 +151,7 @@ Scanări: secrete pe diff indexat `SCANNED=883 BLOCKS=0 WARNS=0` · encoding
 |---|---|
 | Bot | `skills\mavis-google-access-bot\` |
 | Membri | **8** (6 funcționali + 1 meta + registrul) |
-| Referințe | **25** |
+| Referințe | **27** |
 | Registrul | `bot-registry.mjs verify` → `VERDICT=PASS` (34 skills checked) |
 | Verificatoare ale membrilor | **8**, toate `VERDICT=PASS` |
 

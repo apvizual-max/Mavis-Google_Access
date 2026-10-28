@@ -64,6 +64,7 @@ reinteroghează sistemul și **poate aprinde roșu**.
 | `mavis-triple-crunch-skill` | disciplina filtrului triplu |
 | `mavis-r33-bimodal-skill` | contractul workflow bimodal |
 | `mavis-antigravity-ecosystem-integrations-skill` | integrațiile între ecosisteme |
+| `mavis-skill-repair-manifest-skill` | calea de recuperare când instalarea unui membru pică: repară fișierele instalate și actualizează `manifest.json` |
 
 ---
 
