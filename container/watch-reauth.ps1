@@ -83,7 +83,7 @@ if ($running.Count -eq 0) {
         $images = @(docker images google-access --format '{{.CreatedAt}}|{{.Repository}}:{{.Tag}}' 2>$null |
             Sort-Object -Descending)
         if ($images.Count -gt 0) { $image = ($images[0] -split '\|')[1] }
-        if (-not $image) { $image = 'google-access:1.0.9' }
+        if (-not $image) { $image = 'google-access:1.0.10' }
         Write-Log ('CONTAINER=recreating image=' + $image)
         docker run -d --name $Container --restart unless-stopped `
             -p 127.0.0.1:8766:8766 `

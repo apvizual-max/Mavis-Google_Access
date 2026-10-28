@@ -676,6 +676,145 @@ Falsificări (controlul de control poate să se aprindă roșu):
   pe HTTP, nu stdio, iar `google-workspace-mcp` acoperă deja Calendar cu un
   grant read-only și un apel calendarList real.
 
+---
+
+## 14. 28 oct 2026, 01:50-02:06Z - imaginea 1.0.10, defectul de tabele și roșul fals
+
+### 14.1 Rebuild-ul 1.0.10: containerul recreat, grantul a supraviețuit
+
+Imaginea `google-access:1.0.9` a fost reconstruită ca **`google-access:1.0.10`**,
+din sursa vie `C:\Users\apviz\.minimax\google-access`, cu Dockerfile-ul
+documentat. Containerul a fost recreat cu aceiași parametri: nume
+`Google_Access`, `--restart unless-stopped`, `-p 127.0.0.1:8766:8766`,
+`-e GA_PORT=8766`, volum rw `C:\Users\apviz\.minimax\google-access\data:/data`,
+volum ro `E:\--- System Secrets:/secrets`. Măsurat:
+
+| | Măsurat | Comanda |
+|---|---|---|
+| Container creat | `2026-10-28T01:50:31.196974092Z` | `docker inspect Google_Access --format {{.Created}}` |
+| Imagine | `google-access:1.0.10` | `docker inspect` / `docker ps` |
+| Stare | `healthy` | `docker inspect` |
+| Grant | `grant=live`, `tools=32` — credentialul stă în volum, deci a supraviețuit recreării | `CHECK C2.health` |
+| Octeți rulați | `server.mjs` sha256 `63e4ea8d2bbb…` | `CHECK C1b.running-code` |
+| Octeți în repo | `server.mjs` sha256 `63e4ea8d2bbb…` | `Get-FileHash container\server.mjs` |
+
+`repo=63e4ea8d2bbb running=63e4ea8d2bbb match=true` — incidentul 1.0.9 (imagine
+veche, cod reparat în repo) nu se mai repetă.
+
+### 14.2 DEFECT MĂSURAT: walker-ul de tabele al uneltei Docs arunca pe ORICE document cu tabel
+
+În API-ul Google Docs, resursa `Table` are `rows` și `columns` ca **numere**
+(numărul de rânduri / coloane); conținutul real stă în `tableRows` și
+`tableCells`. Codul vechi parcurgea `table.rows.forEach(...)`, deci arunca pe
+**orice** document care conține un tabel:
+
+```
+ERROR: el.table.rows.forEach is not a function
+```
+
+Defectul a devenit vizibil abia când un document de transcript cu **trei
+tabele** a ajuns primul document din Drive — pe acela pe care îl citește
+proba. Reparat în **sursa vie** și în copia din repo (`container/server.mjs`).
+
+Dovada, măsurată: `gdocs_get` pe acel document întoarce acum
+`title=MavisCloud-TRANSCRIPT-SESIUNE-2026-10-28` cu **5091 caractere**
+extrase (înainte, aceeași apelare arunca).
+
+Re-măsurat de două ori în această fereastră:
+`SERVICE=docs TOOL=gdocs_get STATUS=OK DETAIL=keys=title+document_id+text bytes=5227`
+(la 02:05:26Z).
+
+### 14.3 DEFECT MĂSURAT: punctul de control dădea ROȘU FALS
+
+Înainte de reparare, **8 din 8** rulări ale punctului de control au fost
+**ROȘII** — nu din cauza lui Google, ci din cauza defectului de tabele de mai
+sus: un eșec permanent nu se vindecă prin re-probare, dar nici nu putea fi
+distins de o glimmă.
+
+Una dintre acele rulări a arătat și un **tranzitoriu**
+(`transport: fetch failed`), produs de recrearea containerului în timpul
+ferestrei. Logica nouă de re-probare l-a recuperat → `state=HEALTHY`.
+
+### 14.4 Comportamentul nou al lui C3, măsurat
+
+- orice refuz neașteptat este **re-probat, până la 4 încercări în total**
+  (3 extra), cu pauză între ele;
+- **cauza este afișată mereu, per serviciu** — niciodată un `REFUSED` gol;
+- refuz **permanent** (403 / 404 / `MISSING_SCOPE` / un refuz nerecunoscut) care
+  nu se recuperează → `state=FAILED_PERMANENT` → verificarea **pică**, exit **2**;
+- refuz **tranzitoriu** care se recuperează → `state=HEALTHY`, iar blipul
+  **rămâne scris** (nu e ascuns);
+- refuz **tranzitoriu** care nu se recuperează → `state=DEGRADED_TRANSIENT` →
+  `CHECK C3.services WARN` → numărat ca **warning**, exit **0** — niciodată OK
+  mut.
+
+Linii măsurate, din auto-verificarea offline
+(`node scripts\ga-doctor.mjs --self-test`):
+
+```
+CHECK C3.services FAIL state=FAILED_PERMANENT OK=13 REFUSED=3[books,keep,sites] ERROR=0[] attempts=4 unexpected_refused=books status=REFUSED kind=permanent attempts=4 detail[books]=GOOGLE_HTTP_403: {"code":403,"message":"Request had insufficient authentication scopes.",...
+CHECK C3.services OK   state=HEALTHY OK=14 REFUSED=2[keep,sites] ERROR=0[] attempts=2 transient_recovered=books status=REFUSED kind=transient attempts=2 detail[books]=GOOGLE_HTTP_503: {"code":503,"message":"Service temporarily unavailable.",...
+CHECK C3.services WARN state=DEGRADED_TRANSIENT OK=13 REFUSED=3[books,keep,sites] ERROR=0[] attempts=4 persistent_transient=books status=REFUSED kind=transient attempts=4 detail[books]=GOOGLE_HTTP_503: {"code":503,"message":"Service temporarily unavailable.",...
+```
+
+Pe defectul real de la 14.2, linia arată:
+`unexpected_error=docs status=ERROR kind=permanent attempts=4 detail[docs]=ERROR: el.table.rows.forEach is not a function`
+— adică un defect permanent rămâne ROȘU, chiar după 4 încercări.
+
+Rezultatul auto-verificării, măsurat:
+`SELFTEST probes=3 falsified=2 blocked=1 expectations_met=3/3`, `VERDICT=PASS`,
+exit 0. Iar falsificarea rămâne roșie:
+`--self-test --fail C1.container` → `SUMMARY checks=11 failed=1 warnings=0`,
+`VERDICT=FAIL`, exit **2**.
+
+**Rata de bază, măsurată:** blipul pe Google Books apare în ≈ **1 din 3**
+probe-uri. Cu 4 încercări, probabilitatea unui roșu fals scade de la ≈
+`(1/3)²` ≈ **11 %** la ≈ `(1/3)⁴` ≈ **1,2 %**. Re-măsurat în această
+sesiune: **3 din 5** probe-uri brute au răspuns HTTP 503 (`01:59:41Z`,
+`02:01:48Z`, `02:05:26Z`), iar `02:02:49Z` a răspuns `OK`.
+
+### 14.5 Starea finală măsurată (punctul de control, 01:54Z)
+
+```
+=== Google Access - control point ===
+host=OPTIMUS_PRIME at=2026-10-28T01:54:00.065Z
+container=Google_Access mcp=http://127.0.0.1:8766/mcp data=C:/Users/apviz/.minimax/google-access/data
+
+CHECK C1.container OK   status=running health=healthy image=google-access:1.0.10 restart=unless-stopped
+CHECK C1b.running-code OK   repo=63e4ea8d2bbb running=63e4ea8d2bbb match=true
+CHECK C2.health OK   grant=live reauth=false tools=32
+CHECK C3.services OK   state=HEALTHY OK=14 REFUSED=2[keep,sites] ERROR=0[] attempts=1
+CHECK C4.extendlm OK   token_minutes_left=109 refresh_token=yes cloud_secret_age_min=11
+CHECK C5.browser-mcp OK   server=minimax-notebooklm tools=4 path=C:\Users\apviz\.minimax-agent\projects\Mavis-Google_Access\google-layer\minimax-notebooklm.js
+CHECK C6.mcp-registry OK   enabled=true url=http://127.0.0.1:8766/mcp type=streamable-http
+CHECK C10.mcp-paths OK   checked=23 dead_total=0
+CHECK C7.tasks OK   count=4
+CHECK C8.consent OK   listener alive (processes=1)
+CHECK C9.picker OK   session consumed (2026-10-27T23:48:10.291Z) - nothing to watch
+
+SUMMARY checks=11 failed=0 warnings=0
+VERDICT=PASS
+```
+
+Exit **0**. Rulează repetată la 01:58:24Z, cu aceleași rezultate
+(`image=google-access:1.0.10`, `repo=63e4ea8d2bbb running=63e4ea8d2bbb`,
+`state=HEALTHY OK=14 REFUSED=2[keep,sites] ERROR=0[] attempts=1`,
+`SUMMARY checks=11 failed=0 warnings=0`, `VERDICT=PASS`, exit 0).
+
+### 14.6 Cum se reproduce fiecare cifră
+
+| Cifră | Comanda |
+|---|---|
+| Imaginea, starea, volumul | `docker ps` · `docker inspect Google_Access` |
+| Grantul viu, numărul de unelte | `node scripts\ga-doctor.mjs` (verificarea `C2.health`) |
+| Octeții rulați = octeții din repo | `node scripts\ga-doctor.mjs` (verificarea `C1b.running-code`) |
+| Tally-ul pe servicii, cu cauza per serviciu | `node scripts\ga-doctor.mjs` (verificarea `C3.services`) |
+| Cele trei stări ale lui C3 | `node scripts\ga-doctor.mjs --self-test` |
+| Roșu fals, la cerere | `node scripts\ga-doctor.mjs --self-test --fail C1.container` (exit 2) |
+| Blipul tranzitoriu pe Books | `node container\probe-services.mjs` |
+| Citirea documentului cu trei tabele | `gdocs_get` pe `MavisCloud-TRANSCRIPT-SESIUNE-2026-10-28` (5091 caractere) |
+| Tokenul ExtendLM și vârsta secretului Cloud | `node scripts\ga-doctor.mjs` (verificarea `C4.extendlm`) |
+
 
 
 

@@ -22,7 +22,7 @@ verifică printr-o singură comandă.
 node "C:\Users\apviz\.minimax-agent\projects\Mavis-Google_Access\scripts\ga-doctor.mjs"
 ```
 
-Starea măsurată la ultima rulare (2026-10-28 00:48Z):
+Starea măsurată la ultima rulare (2026-10-28 01:54Z):
 
 ```
 SUMMARY checks=11 failed=0 warnings=0
@@ -30,17 +30,20 @@ VERDICT=PASS
 ```
 
 11 verificări independente: containerul, **octeții rulați în container vs
-octeții din repo**, grantul viu, o **probă live per serviciu Google**, tokenul
+octeții din repo**, grantul viu, o **probă live per serviciu Google**
+(re-probată până la 4 încercări, cu **cauza afișată per serviciu**), tokenul
 ExtendLM, handshake-ul real al serverului MCP de browser, registry-ul global,
 **integritatea fiecărei căi din registry**, taskurile programate, ascultătorul
 de consimțământ și sesiunea Photo Picker.
 
 **Exit 0 = verde · 2 = o verificare a picat (numită în ieșire) · 3 = punctul
-de control s-a crapat niciodată raportat ca verde.**
+de control s-a crapat niciodată raportat ca verde.** Un `WARN` (refuz
+tranzitoriu care nu s-a recuperat) e tot exit **0**, cu blipul și cauza
+afișate; un refuz **permanent** pictează verificarea (exit 2).
 
 ## Starea reală, în numere
 
-- **Container** `Google_Access`, imagine `google-access:1.0.9`, `healthy`, `127.0.0.1:8766`
+- **Container** `Google_Access`, imagine `google-access:1.0.10`, `healthy`, `127.0.0.1:8766`
 - **Grant** LIVE, **33 scope-uri**, cont `apvizual@gmail.com`
 - **Unelte** 32
 - **Servicii** **14 OK · 2 REFUSED · 0 ERROR**
@@ -49,6 +52,9 @@ de control s-a crapat niciodată raportat ca verde.**
   importă conținutul lor prin alte unelte în Drive. Automatizarea lor e
   **amânată, sub managementul utilizatorului**, cu planul scris în
   `mavis-skill-google-keep-sites`.
+- **Refuz tranzitoriu:** `books` răspunde uneori HTTP 503 — `C3` re-probează
+  până la 4 încercări și afișează cauza; recuperat → `state=HEALTHY`,
+  nerecuperat → `DEGRADED_TRANSIENT` → `WARN` (exit 0).
 - **Taskuri** toate `lastResult=0`: `Google_Access_Watch` (oră),
   `Google_Access_Consent` (5 min), `Google_Access_Doctor` (30 min),
   `MavisExtendLMHeartbeat` (30 min), `MavisPickerHeartbeat` (15 min)
@@ -73,6 +79,7 @@ node "C:\Users\apviz\.minimax\agents\mavis\skills\mavis-google-access-bot\script
 | `mavis-skill-notebooklm-extendlm` | rotația tokenului, snapshotul pentru Cloud |
 | `mavis-skill-google-keep-sites` | cele două refuzuri + planul amânat |
 | `mavis-skill-access-handoff` | cum se predă mai departe, cu 0 context |
+| `mavis-skill-background-task-verdict` | cum se judecă o măsurătoare lungă: **pe marcajele tipărite**, nu pe codul de ieșire |
 
 ## Regulile (sunt ale sistemului, nu ale unei sesiuni)
 

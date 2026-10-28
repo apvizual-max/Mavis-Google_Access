@@ -4,7 +4,7 @@
 conexiunea permanentă la Google **fără să o reconstruiască** și fără să
 întrebe ceva ce poate citi de aici.
 
-**Măsurat:** 2026-10-28, 00:40-02:20 UTC+2. Fiecare cifră din acest document a
+**Măsurat:** 2026-10-28, 00:40-04:05 UTC+2. Fiecare cifră din acest document a
 fost produsă de o unealtă în această sesiune și este însoțită de comanda care o
 produce.
 
@@ -31,30 +31,36 @@ node "C:\Users\apviz\.minimax-agent\projects\Mavis-Google_Access\scripts\ga-doct
 
 ---
 
-## 2. Starea măsurată (2026-10-28, 00:48Z)
+## 2. Starea măsurată (2026-10-28, 01:54Z)
 
 ```
-CHECK C1.container    OK   running / healthy / google-access:1.0.9 / unless-stopped
-CHECK C1b.running-code OK  repo=8429fa512919 running=8429fa512919 match=true
-CHECK C2.health       OK   grant=live reauth=false tools=32
-CHECK C3.services     OK   OK=14 REFUSED=2[keep,sites] ERROR=0
-CHECK C4.extendlm     OK   token_minutes_left=174 refresh_token=yes cloud_secret_age_min=6
-CHECK C5.browser-mcp  OK   server=minimax-notebooklm tools=4
-CHECK C6.mcp-registry OK   enabled=true url=http://127.0.0.1:8766/mcp
-CHECK C10.mcp-paths   OK   checked=23 dead_total=0
-CHECK C7.tasks        OK   count=4
-CHECK C8.consent      OK   listener alive (processes=1)
-CHECK C9.picker       OK   session consumed - nothing to watch
+=== Google Access - control point ===
+host=OPTIMUS_PRIME at=2026-10-28T01:54:00.065Z
+container=Google_Access mcp=http://127.0.0.1:8766/mcp data=C:/Users/apviz/.minimax/google-access/data
+
+CHECK C1.container OK   status=running health=healthy image=google-access:1.0.10 restart=unless-stopped
+CHECK C1b.running-code OK   repo=63e4ea8d2bbb running=63e4ea8d2bbb match=true
+CHECK C2.health OK   grant=live reauth=false tools=32
+CHECK C3.services OK   state=HEALTHY OK=14 REFUSED=2[keep,sites] ERROR=0[] attempts=1
+CHECK C4.extendlm OK   token_minutes_left=109 refresh_token=yes cloud_secret_age_min=11
+CHECK C5.browser-mcp OK   server=minimax-notebooklm tools=4 path=C:\Users\apviz\.minimax-agent\projects\Mavis-Google_Access\google-layer\minimax-notebooklm.js
+CHECK C6.mcp-registry OK   enabled=true url=http://127.0.0.1:8766/mcp type=streamable-http
+CHECK C10.mcp-paths OK   checked=23 dead_total=0
+CHECK C7.tasks OK   count=4
+CHECK C8.consent OK   listener alive (processes=1)
+CHECK C9.picker OK   session consumed (2026-10-27T23:48:10.291Z) - nothing to watch
+
 SUMMARY checks=11 failed=0 warnings=0
 VERDICT=PASS
 ```
 
 | | |
 |---|---|
-| Container | `Google_Access`, imagine `google-access:1.0.9`, `Up 6 hours (healthy)`, `127.0.0.1:8766->8766/tcp` |
+| Container | `Google_Access`, imagine `google-access:1.0.10`, `Up 13 minutes (healthy)`, `127.0.0.1:8766->8766/tcp` |
 | Grant | **LIVE**, 33 scope-uri, cont `apvizual@gmail.com` |
 | Unelte | **32** |
-| Servicii | **14 OK · 2 REFUSED (keep, sites) · 0 ERROR** |
+| Servicii | **14 OK · 2 REFUSED (keep, sites) · 0 ERROR** (`C3`, `state=HEALTHY`) |
+| Books | refuz **tranzitoriu** măsurat: HTTP 503 la 3 din 5 probe-uri brute; `C3` re-probează până la 4 încercări și afișează cauza |
 | Taskuri | `Google_Access_Watch` (oră) · `Google_Access_Consent` (5 min) · `Google_Access_Doctor` (30 min) · `MavisExtendLMHeartbeat` (30 min) · `MavisPickerHeartbeat` (15 min) — **toate cu `lastResult=0`** |
 | Repo Google Access | `Mavis-Google_Access`, ramura `main` = `origin/main`, divergență 0/0, arbore curat — **`.handoff\` este versionat aici** (introdus în `3c97e18`) |
 | Repo backbone | `OPTIMUS-Backbone` `267ef3c` = `origin/main`, divergență 0/0 |
@@ -185,6 +191,7 @@ node "C:\Users\apviz\.minimax\agents\mavis\skills\mavis-google-access-bot\script
 | `mavis-skill-notebooklm-extendlm` | rotația tokenului, publicarea snapshotului |
 | `mavis-skill-google-keep-sites` | cele două refuzuri + planul amânat |
 | `mavis-skill-access-handoff` | chiar acest handoff: cum se predă mai departe |
+| `mavis-skill-background-task-verdict` | cum se judecă o măsurătoare lungă: pe marcajele tipărite, nu pe codul de ieșire |
 
 Lista completă, cu referințele existente: `SKILLS-INDEX.md`.
 
@@ -209,9 +216,14 @@ Lista completă, cu referințele existente: `SKILLS-INDEX.md`.
 
 ## 8. Limitele cunoscute, spuse cu voce tare
 
-- **Verificarea C3 are nevoie de API-urile live ale Google.** Într-o indisponibilitate
-  din partea Google raportează `ERROR` — adevărul momentului, nu un defect al
-  setup-ului.
+- **Verificarea C3 are nevoie de API-urile live ale Google.** Un refuz
+  **tranzitoriu** (de exemplu Google Books HTTP 503) este **re-probat până la
+  4 încercări**, cu pauză între ele, și **cauza este afișată per serviciu**:
+  dacă se recuperează → `state=HEALTHY`, iar blipul **rămâne scris**; dacă nu
+  se recuperează → `state=DEGRADED_TRANSIENT` → `CHECK C3.services WARN` →
+  exit **0**. Un refuz **permanent** (403 / 404 / `MISSING_SCOPE` / un refuz
+  nerecunoscut) → `state=FAILED_PERMANENT` → **FAIL** → exit **2**. Deci:
+  **roșu pe defect, galben pe blip, niciodată ascuns.**
 - **Rezultatul taskului întârzie cu până la 30 de minute.** După o reparație,
   rulează doctorul manual; taskul își reconsemnează apoi verdictul.
 - **Keep și Sites nu vor apărea niciodată ca `OK`.** Sunt refuzate de Google.
@@ -235,10 +247,29 @@ Lista completă, cu referințele existente: `SKILLS-INDEX.md`.
 4. **28 oct** — instrumentul de control a descoperit și două bug-uri ale sale
    (`__dirname` în ESM; o re-probare tranzitorie care citea un obiect greșit,
    în exact clipa în care Google Books a răspuns 503).
+5. **28 oct, 01:52Z** — imaginea **`google-access:1.0.10`**, construită din
+   sursa vie și recreată cu aceiași parametri. Grantul a supraviețuit în
+   volum (`grant=live`, `tools=32`), iar octeții rulați au devenit identici
+   cu cei din repo (`repo=63e4ea8d2bbb running=63e4ea8d2bbb`). Aceeași
+   fereastră a scos la iveală **două defecte reale**:
+   **(a)** walker-ul de tabele al uneltei Docs arunca pe **orice** document cu
+   tabel — `ERROR: el.table.rows.forEach is not a function`; reparat în sursa
+   vie și în repo, `gdocs_get` citește acum documentul cu trei tabele
+   (**5091 caractere**);
+   **(b)** punctul de control era **roșu fals** — **8 din 8** rulări au fost
+   roșii din cauza defectului Docs, iar o glimmă tranzitorie
+   (`transport: fetch failed`) produsă de recrearea containerului era
+   raportată ca eșec. `C3` a fost rescris: re-probe până la **4 încercări**,
+   cauza afișată per serviciu, permanent → `FAILED_PERMANENT` → FAIL (exit 2),
+   tranzitoriu recuperat → HEALTHY cu blipul scris, tranzitoriu nerecuperat →
+   `DEGRADED_TRANSIENT` → WARN (exit 0).
 
 **Lecția reutilizabilă:** *un fișier prezent nu e o migrare; o cale într-un
 registry care nu mai există nu e o înregistrare; o sesiune consumată nu e o
 defecție.* Toate trei au fost găsite de **măsurători**, nu de presupunere.
+Adăugată la 28 oct: *o blipă tranzitorie nu e un defect — dar nici un defect
+real nu e o blipă; de aceea re-probarea trebuie să numere cauza, nu doar
+răspunsul.*
 
 ---
 

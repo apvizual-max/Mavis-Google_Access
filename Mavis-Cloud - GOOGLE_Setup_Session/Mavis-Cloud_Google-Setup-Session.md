@@ -878,7 +878,7 @@ docs/REGULI-VAULT.md            ← cele 8 reguli ale tale, întregi
 
 
 
-\*\*Audit de `pkms-vault-automation`:\*\* zero secrete reale. Matcher-ul meu a lovit \*\*fixture-urile auto-testului detectorului de secrete\*\* din vault (`ghp\_0123456789…`, `AKIAIOSFODNN7EXAMPLE`) — detectorul tău funcționează, eu l-am declanșat pe el.
+\*\*Audit de `pkms-vault-automation`:\*\* zero secrete reale. Matcher-ul meu a lovit \*\*fixture-urile auto-testului detectorului de secrete\*\* din vault (`ghp\_0123456789…`, `AKIA-EXEMPLU-AWS`) — detectorul tău funcționează, eu l-am declanșat pe el.
 
 
 
@@ -1102,7 +1102,7 @@ Am scris valori reale de secrete într-un document dintr-un repo public. \*\*Pus
 
 
 
-`ghp\_xxxx…` · `GOCSPX-aaaa…` · `AKIAIOSFODNN7EXAMPLE` (cheia exemplu AWS) · `glpat-AbCdEf…` · `xoxb-your-slack-bot-token` · un șir `1//…` găsit \*\*în interiorul unui JPEG base64\*\* · fixture-uri din auto-testul detectorului tău de secrete.
+`ghp\_xxxx…` · `GOCSPX-aaaa…` · `AKIA-EXEMPLU-AWS` (cheia exemplu AWS) · `glpat-AbCdEf…` · `xoxb EXEMPLU` · un șir `1//…` găsit \*\*în interiorul unui JPEG base64\*\* · fixture-uri din auto-testul detectorului tău de secrete.
 
 
 

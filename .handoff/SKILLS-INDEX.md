@@ -29,6 +29,7 @@ reinteroghează sistemul și **poate aprinde roșu**.
 | `mavis-skill-notebooklm-extendlm` | `skills\mavis-skill-notebooklm-extendlm\` | rotația tokenului, snapshotul Cloud, limitele ambelor drumuri | `VERDICT=PASS` — token 133 min, secret Cloud 17 min |
 | `mavis-skill-google-keep-sites` | `skills\mavis-skill-google-keep-sites\` | cele două refuzuri + **planul automatizării amânate** | `VERDICT=PASS` — ambele scope absente din `FULL_SCOPES`, ambele `STATUS=REFUSED` |
 | `mavis-skill-access-handoff` | `skills\mavis-skill-access-handoff\` | protocolul de predare cu 0 context | `VERDICT=PASS` — 33 căi verificate, dead=0 |
+| `mavis-skill-background-task-verdict` | `skills\mavis-skill-background-task-verdict\` | cum se judecă o măsurătoare lungă: **pe marcajele tipărite**, nu pe codul de ieșire al shell-ului | `VERDICT=PASS` — 17 checks, failed=0, falsified=4; inversia măsurată: exit interior 2 cu marcajul prezent → wrapper exit 0 |
 
 *(Rădăcina: `C:\Users\apviz\.minimax\agents\mavis\skills\`)*
 

@@ -6,7 +6,7 @@ One Docker container, one MCP server, one credential, no re-authentication frict
 
 | | |
 |---|---|
-| Container | `Google_Access` (Docker, image `google-access:1.0.9`) |
+| Container | `Google_Access` (Docker, image `google-access:1.0.10`) |
 | MCP endpoint | `http://127.0.0.1:8766/mcp` (Streamable HTTP, JSON-RPC 2.0) |
 | Health | `http://127.0.0.1:8766/health` |
 | Credential | one OAuth refresh token, in the mounted volume `data/credentials.json` - **never in an image layer** |
@@ -39,7 +39,9 @@ VERDICT=PASS
 ```
 
 Exit `0` = green, `2` = a check failed, `3` = the control point itself crashed
-(never reported as green). The checks cover the container, the bytes actually
+(never reported as green). A `WARN` — a transient Google refusal that did not
+recover after 4 attempts — is still exit `0`, and the blip is printed, never
+hidden. The checks cover the container, the bytes actually
 running inside it, the live grant, a live call per Google service, the
 ExtendLM token, the Browser MCP handshake, the global MCP registry, the
 integrity of every path that registry points to, the scheduled tasks, the
@@ -59,10 +61,13 @@ Google APIs and classifies the ANSWER, not the request:
 - `REFUSED` - the API answered with a refusal (this is a measured refusal, not a crash)
 - `ERROR` / `SKIP` - the call did not answer (never reported as success)
 
-Last measured run (2026-10-27 13:28, image 1.0.9, grant of 33 scopes):
-`TALLY OK=14 REFUSED=2 ERROR=0 SKIP=0`, `VERDICT=PASS`, `PROBE_EXIT=0`.
-The same tally came out of the Cloud runner (run `40497337673`, conclusion
-`success`).
+Last measured run (2026-10-28 02:05Z, image 1.0.10, grant of 33 scopes):
+`TALLY={"OK":13,"REFUSED":3,"ERROR":0,"SKIP":0}`, `VERDICT=PASS`, `PROBE_EXIT=0`.
+The third refusal is **transient**: Google Books answered HTTP 503 on 3 of the
+5 raw probes of that session and `OK` on the other 2 — `probe-services.mjs`
+does not retry, `C3.services` does (up to 4 attempts) and names the cause
+either way. The steady-state 14/2 tally also came out of the Cloud runner
+(run `40497337673`, conclusion `success`).
 
 | Service | Tool | Result |
 |---|---|---|
@@ -70,10 +75,10 @@ The same tally came out of the Cloud runner (run `40497337673`, conclusion
 | Drive | `gdrive_list` | OK - real files |
 | Gmail | `gmail_list` | OK - real messages |
 | Calendar | `gcalendar_list` | OK - real events |
-| Books | `gbooks_search` | OK - real volumes |
+| Books | `gbooks_search` | OK - real volumes (transient: HTTP 503 on 3 of 5 raw probes; `C3` re-probes) |
 | Tasks | `gtasks_list` | OK - 1 list |
 | Contacts | `gcontacts_list` | OK - 5 contacts |
-| Docs | `gdocs_get` | OK - real document |
+| Docs | `gdocs_get` | OK - real document (5091 characters extracted from the transcript document that carries three tables) |
 | Sheets | `gsheets_read` | OK - real sheet |
 | Apps Script | `gscript_list` | OK - 1 project |
 | YouTube | `youtube_my_videos` | OK - channel data |
@@ -89,17 +94,23 @@ hidden: **Keep** publishes no user-OAuth scope (workspace-admin only) and the
 scope fails the ENTIRE consent request with `invalid_scope`, which is why they
 are absent from the grant.
 
+A third refusal is **transient**: Google Books answers HTTP 503 on some
+probes. `C3.services` re-probes it up to 4 times, prints the cause per
+service, and a transient that never recovers becomes `DEGRADED_TRANSIENT` —
+a `WARN` (exit `0`), never a silent OK. A **permanent** refusal still fails
+the check (exit `2`).
+
 ---
 
 ## Rebuilding the container from this folder
 
 ```powershell
-docker build -t google-access:1.0.9 -f "C:\Users\apviz\.minimax\google-access\Dockerfile" "C:\Users\apviz\.minimax\google-access"
+docker build -t google-access:1.0.10 -f "C:\Users\apviz\.minimax\google-access\Dockerfile" "C:\Users\apviz\.minimax\google-access"
 docker stop Google_Access; docker rm Google_Access
 docker run -d --name Google_Access --restart unless-stopped `
   -p 127.0.0.1:8766:8766 -e GA_PORT=8766 `
   -v "C:\Users\apviz\.minimax\google-access\data:/data" `
-  -v "E:\--- System Secrets:/secrets:ro" google-access:1.0.9
+  -v "E:\--- System Secrets:/secrets:ro" google-access:1.0.10
 ```
 
 The credential lives in the mounted volume, so recreating the container never

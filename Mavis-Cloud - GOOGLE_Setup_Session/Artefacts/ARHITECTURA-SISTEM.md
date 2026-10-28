@@ -84,7 +84,7 @@ Skill-urile vii `git-autonom` / `git-install`: `_SYSTEM\Skills_MASTER_Folder\SEN
 
 **Detaliu util:** `git-autocommit.ps1` conține un **detector de secrete cu
 auto-test** (`Test-ContinutSecret` + `AutoProbe`). Fixture-urile lui
-(`ghp_0123456789abcdefghijABCDEFGHIJ`, `AKIAIOSFODNN7EXAMPLE`, `MIIEow==`) sunt
+(`ghp_0123456789abcdefghijABCDEFGHIJ`, `AKIA-EXEMPLU-AWS`, `MIIEow==`) sunt
 **false-positive-uri sigure** când scanezi istoricul git. Nu le confunda cu
 secrete reale.
 

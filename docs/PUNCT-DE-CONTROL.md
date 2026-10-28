@@ -17,6 +17,12 @@ node "C:\Users\apviz\.minimax-agent\projects\Mavis-Google_Access\scripts\ga-doct
 Exit **0** = every critical check passed. Exit **2** = at least one failed.
 Exit **3** = the control point itself crashed (never reported as green).
 
+A **WARN** is still exit **0**: a check that ends in the `DEGRADED_TRANSIENT`
+state (a transient refusal that did not recover) is counted as a warning, the
+blip is printed with its cause, and the summary reads
+`failed=0 warnings=1`. A WARN is never a silent OK — the summary line and the
+per-service cause line both say it out loud.
+
 The wrapper `scripts\ga-doctor.ps1` adds the dated log line and propagates the
 exit code. The scheduled task **`Google_Access_Doctor`** runs it every 30
 minutes, so the system checks itself while nobody is in a conversation.
@@ -29,13 +35,13 @@ it does not have to rebuild anything.
 
 ## The eleven checks
 
-| Check | What it proves | Measured 2026-10-28 01:49Z |
+| Check | What it proves | Measured 2026-10-28 01:54Z |
 |---|---|---|
-| `C1.container` | the container exists, runs, is healthy, has the right image and restart policy | `running / healthy / google-access:1.0.9 / unless-stopped` |
-| `C1b.running-code` | the bytes **running** inside the container are the bytes **in the repo** | `repo=8429fa512919 running=8429fa512919 match=true` |
+| `C1.container` | the container exists, runs, is healthy, has the right image and restart policy | `running / healthy / google-access:1.0.10 / unless-stopped` |
+| `C1b.running-code` | the bytes **running** inside the container are the bytes **in the repo** | `repo=63e4ea8d2bbb running=63e4ea8d2bbb match=true` |
 | `C2.health` | the grant is live, no re-auth is pending, the tool count is real | `grant=live reauth=false tools=32` |
-| `C3.services` | a **live** call per Google service, classified OK / REFUSED / ERROR | `OK=14 REFUSED=2[keep,sites] ERROR=0` |
-| `C4.extendlm` | the NotebookLM token is alive and its snapshot is published to the Cloud secret | `token_minutes_left=235 refresh_token=yes cloud_secret_age_min=6` |
+| `C3.services` | a **live** call per Google service, classified OK / REFUSED / ERROR, with the **cause named** and a transient refusal re-probed | `state=HEALTHY OK=14 REFUSED=2[keep,sites] ERROR=0[] attempts=1` |
+| `C4.extendlm` | the NotebookLM token is alive and its snapshot is published to the Cloud secret | `token_minutes_left=109 refresh_token=yes cloud_secret_age_min=11` |
 | `C5.browser-mcp` | the registered Browser MCP path exists **and** the server answers over real stdio | `server=minimax-notebooklm tools=4` |
 | `C6.mcp-registry` | `Google_Access` is registered globally, so every agent inherits it | `enabled=true url=http://127.0.0.1:8766/mcp` |
 | `C10.mcp-paths` | every local path the global registry points to **exists on disk** | `checked=23 dead_total=0` |
@@ -65,8 +71,24 @@ exists because something specific broke, and was measured, not imagined.
   station, not only for the session that wrote it.
 - **`C3.services`** — Google Books answered HTTP 503 on two of three probes.
   A control point that turns red on a Google blip is a control point that gets
-  ignored, so a transient refusal is re-probed once and only a **persistent**
-  refusal is a finding.
+  ignored, so every unexpected refusal is now **re-probed, up to 4 attempts in
+  total** (3 extra, with a delay between them), and the **cause is printed for
+  every service** — never a bare `REFUSED`. A refusal that does not recover is
+  split by its kind: a **permanent** one (403 / 404 / `MISSING_SCOPE` / an
+  unrecognised refusal) is `state=FAILED_PERMANENT` and the check **FAILS**
+  (exit 2); a **transient** one that recovers is `state=HEALTHY` with the blip
+  still printed; a transient one that never recovers is
+  `state=DEGRADED_TRANSIENT` → `CHECK C3.services WARN` → counted as a warning,
+  exit 0. Measured Books blip rate ≈ **1 in 3 probes**: with 4 attempts the
+  false-red probability fell from ≈ `(1/3)^2` ≈ **11 %** to ≈ `(1/3)^4` ≈
+  **1.2 %**.
+- **the same check, the other way round** — the re-probe must not hide a *real*
+  bug behind the retry. The 2026-10-28 defect proved it: the Docs table
+  walker threw on **every** document containing a table
+  (`ERROR: el.table.rows.forEach is not a function`). A permanent failure
+  re-probed 4 times never recovers, so it is reported as
+  `state=FAILED_PERMANENT` → FAIL → exit 2. The retry hides Google blips, not
+  the truth.
 - **`C9.picker`** — a picker session that was completed and deleted answers
   404 forever after. Reporting that as a failure turned the heartbeat red, and
   through it the whole control point, for the user doing the very thing the
@@ -82,6 +104,22 @@ node scripts/ga-doctor.mjs --container NoSuchContainer_zzz    -> FAIL, exit 2
 ```
 
 A check that cannot go red is not evidence.
+
+The instrument also falsifies **itself**, offline, against the three states of
+`C3` — no live call, no network:
+
+```
+node scripts/ga-doctor.mjs --self-test
+SELFTEST_PROBE case=permanent_refusal expected=FAIL got=FAIL cause_named=yes result=PASS falsified=1 blocked=1
+SELFTEST_PROBE case=transient_recovers expected=OK got=OK cause_named=yes result=PASS falsified=0 blocked=0
+SELFTEST_PROBE case=transient_persistent expected=WARN got=WARN cause_named=yes result=PASS falsified=1 blocked=0
+SELFTEST probes=3 falsified=2 blocked=1 expectations_met=3/3
+VERDICT=PASS
+```
+
+Measured 2026-10-28, exit 0. And the falsification still bites:
+`--self-test --fail C1.container` → `SUMMARY checks=11 failed=1 warnings=0`,
+`VERDICT=FAIL`, exit 2.
 
 ---
 
@@ -118,7 +156,7 @@ through Gemini / other tools into Drive. Every other service is live.
 
 | Instrument | What it is for |
 |---|---|
-| `scripts/probe-services.mjs` | the per-service live probe behind `C3` |
+| `container/probe-services.mjs` | the per-service live probe behind `C3` |
 | `scripts/probe-mcp-stdio.mjs` | proves that **any** registered MCP entry starts (used for the repaired entries) |
 | `scripts/compare-layer-versions.py` | compares two copies of a file set line by line — born from a move that lost merged optimizations |
 | `scripts/restore-layer-optimizations.py` | carries those optimizations forward with byte-level proof |
