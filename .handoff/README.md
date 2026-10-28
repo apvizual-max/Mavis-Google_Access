@@ -16,7 +16,7 @@ Pentru o sesiune cu **0 context și 0 memorie**.
 node "C:\Users\apviz\.minimax-agent\projects\Mavis-Google_Access\scripts\ga-doctor.mjs"
 ```
 
-Starea la predare (2026-10-28 00:03Z): `SUMMARY checks=11 failed=0 warnings=0`
+Starea la predare (2026-10-28 00:48Z): `SUMMARY checks=11 failed=0 warnings=0`
 · `VERDICT=PASS` · exit 0.
 
 ## Ce trebuie să știi înainte de orice altceva
@@ -38,6 +38,8 @@ C:\Users\apviz\.minimax\agents\mavis\skills\mavis-google-access-bot\
   registry.json       lista machine-readable: membri + referințe + roadmap
   scripts\bot-registry.mjs   list · verify · show · link
   scripts\log-run.mjs        înregistrează o rulare în `runs.md`
+  scripts\log-run-selfcheck.mjs   auto-proba loggerului (fixture, nu atinge loguri reale)
+  logs\bot-runs.md           jurnalul propriu al botului
 ```
 
 ```powershell

@@ -21,14 +21,14 @@ reinteroghează sistemul și **poate aprinde roșu**.
 
 | Skill | Cale | Deține | Verificat |
 |---|---|---|---|
-| `mavis-skill-google-access-control-point` | `skills\mavis-skill-google-access-control-point\` | punctul de control (11 verificări, verdict unic) + contractul de permanență | `VERDICT=PASS` — 11 checks, failed=0; falsificat cu `--self-test --fail` → exit 2 |
+| `mavis-skill-google-access-control-point` | `skills\mavis-skill-google-access-control-point\` | punctul de control (11 verificări, verdict unic) + contractul de permanență | `VERDICT=PASS` (4/4) — doctorul: 11 checks, failed=0; falsificat cu `--self-test --fail` → exit 2 |
 | `mavis-skill-docker-access-point` | `skills\mavis-skill-docker-access-point\` | containerul: build, volumele, portul, „octeții rulați = octeții din repo" | `VERDICT=PASS` (5) — running sha256 `8429fa512919` = repo sha256 |
 | `mavis-skill-browser-mcp` | `skills\mavis-skill-browser-mcp\` | stratul de browser: `minimax-notebooklm`, fereastra pickerului, **planul Browser MCP** | `VERDICT=PASS` (5) — handshake real, server=minimax-notebooklm, tools=4 |
 | `mavis-skill-mcp-development` | `skills\mavis-skill-mcp-development\` | cum intră următorul MCP în punctul central; contractul registry-ului; **planul MCP-urilor viitoare** | `VERDICT=PASS` (5) — 23 căi, dead=0 |
 | `mavis-skill-photo-picker` | `skills\mavis-skill-photo-picker\` | singura ușă spre biblioteca foto; starea „consumată" | `VERDICT=PASS` (5) — 6 fișiere, toate JPEG reale |
-| `mavis-skill-notebooklm-extendlm` | `skills\mavis-skill-notebooklm-extendlm\` | rotația tokenului, snapshotul Cloud, limitele ambelor drumuri | `VERDICT=PASS` — token 186 min, secret Cloud 24 min |
+| `mavis-skill-notebooklm-extendlm` | `skills\mavis-skill-notebooklm-extendlm\` | rotația tokenului, snapshotul Cloud, limitele ambelor drumuri | `VERDICT=PASS` — token 133 min, secret Cloud 17 min |
 | `mavis-skill-google-keep-sites` | `skills\mavis-skill-google-keep-sites\` | cele două refuzuri + **planul automatizării amânate** | `VERDICT=PASS` — ambele scope absente din `FULL_SCOPES`, ambele `STATUS=REFUSED` |
-| `mavis-skill-access-handoff` | `skills\mavis-skill-access-handoff\` | protocolul de predare cu 0 context | `VERDICT=PASS` — 15 căi verificate, dead=0 |
+| `mavis-skill-access-handoff` | `skills\mavis-skill-access-handoff\` | protocolul de predare cu 0 context | `VERDICT=PASS` — 33 căi verificate, dead=0 |
 
 *(Rădăcina: `C:\Users\apviz\.minimax\agents\mavis\skills\`)*
 
@@ -84,7 +84,7 @@ reinteroghează sistemul și **poate aprinde roșu**.
 | Nu e aici | De ce |
 |---|---|
 | Fișierele de proiect din `Mavis-Google_Access\` | nu sunt skill-uri; sunt **sursa** pe care skill-urile o verifică (`scripts\ga-doctor.mjs`, `scripts\probe-mcp-stdio.mjs`, `container\`, `google-layer\`) |
-| Skill-urile personale (1.307 la `C:\Users\apviz\.minimax\skills\`) | sunt indexate de `mavis-skill-index`; aici sunt doar cele care ating acest ecosistem |
+| Skill-urile personale (1.308 la `C:\Users\apviz\.minimax\skills\`) | sunt indexate de `mavis-skill-index`; aici sunt doar cele care ating acest ecosistem |
 | `notebooklm-mcp` | e pachetul pe care îl rulează **Hermes**, fără configurație și fără credential. **Deliberat nu** e o capabilitate minimax. Duplicarea e corectă; partajarea nu. |
 
 ---
