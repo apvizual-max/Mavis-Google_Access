@@ -115,15 +115,15 @@
       "MavisPickerHeartbeat": 0
     },
     "repos": {
-      "Mavis-Google_Access": { "head": "3c97e18", "origin": "3c97e18", "divergence": "0/0", "clean": true },
+      "Mavis-Google_Access": { "branch": "main", "head_at_measurement": "3c97e18", "divergence": "0/0", "clean": true, "contains_handoff": true },
       "OPTIMUS-Backbone": { "head": "267ef3c", "origin": "267ef3c", "divergence": "0/0", "clean": true }
     },
     "handoff_commit": {
-      "sha": "3c97e18",
+      "introduced_in": "3c97e18",
       "branch": "main",
       "pushed": true,
       "verified_by": "git ls-remote origin refs/heads/main",
-      "note": "the .handoff folder is versioned - the transfer is a git pull, not a file copy"
+      "note": "the .handoff folder is versioned - the transfer is a git pull, not a file copy; a commit cannot contain its own SHA, so the anchor is the commit that introduced the folder"
     },
     "gates": {
       "secret_scan": { "scanned_lines": 883, "blocks": 0, "warns": 0, "scope": "staged diff of the handoff commit" },

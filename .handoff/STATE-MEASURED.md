@@ -134,9 +134,11 @@ Toate cinci: `lastResult=0`, stare `Ready`.
 | `Mavis-Google_Access` | `3c97e18` | `3c97e18` | 0 / 0 | curat |
 | `OPTIMUS-Backbone` | `267ef3c` | `267ef3c` | 0 / 0 | curat (3 foldere de scratch ale altui agent, neatinse) |
 
-Folderul `.handoff\` este **versionat în acest commit** (`3c97e18`) și împins pe
-GitHub: predarea se face prin `git pull`, nu prin copierea unui folder local.
-Verificat cu `git ls-remote origin refs/heads/main` → `3c97e18…`, divergență 0/0.
+Folderul `.handoff\` este **versionat pe `main`** (introdus în `3c97e18`, cifrele
+corectate în commitul imediat următor) și împins pe GitHub: predarea se face
+prin `git pull`, nu prin copierea unui folder local. Verificat cu
+`git ls-remote origin refs/heads/main` → `3c97e18…` la momentul măsurătorii,
+divergență 0/0.
 
 Scanări: secrete pe diff indexat `SCANNED=883 BLOCKS=0 WARNS=0` · encoding
 `FILES_CHECKED=105 PROBLEMS=0`, zero BOM.

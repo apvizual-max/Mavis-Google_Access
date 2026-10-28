@@ -56,7 +56,7 @@ VERDICT=PASS
 | Unelte | **32** |
 | Servicii | **14 OK · 2 REFUSED (keep, sites) · 0 ERROR** |
 | Taskuri | `Google_Access_Watch` (oră) · `Google_Access_Consent` (5 min) · `Google_Access_Doctor` (30 min) · `MavisExtendLMHeartbeat` (30 min) · `MavisPickerHeartbeat` (15 min) — **toate cu `lastResult=0`** |
-| Repo Google Access | `Mavis-Google_Access` `3c97e18` = `origin/main`, divergență 0/0, arbore curat — **`.handoff\` este versionat aici** |
+| Repo Google Access | `Mavis-Google_Access`, ramura `main` = `origin/main`, divergență 0/0, arbore curat — **`.handoff\` este versionat aici** (introdus în `3c97e18`) |
 | Repo backbone | `OPTIMUS-Backbone` `267ef3c` = `origin/main`, divergență 0/0 |
 | Secrete | scanare pe diff indexat: `SCANNED=883 BLOCKS=0 WARNS=0` |
 | Encoding | 105 fișiere, `PROBLEMS=0`, zero BOM |
