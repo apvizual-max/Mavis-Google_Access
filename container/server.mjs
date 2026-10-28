@@ -1003,10 +1003,15 @@ const IMPL = {
       if (el.paragraph) text += read(el.paragraph.elements ? el.paragraph.elements[0] : {}) + "\n";
       (el.paragraphs || []).forEach(walk);
       (el.content || []).forEach(walk);
-      (el.table || {}).rows &&
-        el.table.rows.forEach((row) => {
-          row.cells.forEach((c) => (c.content || []).forEach(walk));
-        });
+      // MEASURED 2026-10-28: the Docs API Table resource has `rows` and
+      // `columns` as NUMBERS (the counts) and the real content in `tableRows`,
+      // whose cells live in `tableCells`. Walking `table.rows` therefore called
+      // forEach on a number and threw "el.table.rows.forEach is not a function"
+      // on EVERY document that contains a table. The probe only saw it once a
+      // transcript with three tables became the first document in Drive.
+      ((el.table && el.table.tableRows) || []).forEach((row) => {
+        ((row && row.tableCells) || []).forEach((c) => (c.content || []).forEach(walk));
+      });
     };
     walk(d.body);
     return { title: d.title, document_id: d.documentId, text };
